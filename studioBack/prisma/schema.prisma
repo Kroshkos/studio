@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+  // provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  email    String    @unique
+  password String
+  personId Int?
+  role     UserRole? @relation(fields: [roleName], references: [name])
+  roleName String?
+}
+
+model UserRole {
+  id    Int    @id @default(autoincrement())
+  name  String @unique @map("v0")
+  users User[]
+}
+
+model CasbinRule {
+  id    Int     @id @default(autoincrement())
+  ptype String
+  v0    String?
+  v1    String?
+  v2    String?
+  v3    String?
+  v4    String?
+  v5    String?
+
+  @@map("casbin_rule")
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  email     String?
+  purpose   String?
+  role      String   // "teacher" | "student"
+  date      String   // YYYY-MM-DD
+  slot      String   // "09:00"
+  dateLabel String?
+  createdAt DateTime @default(now())
+}
+
+model StudioConfig {
+  id          Int     @id @default(1)       // всегда одна запись
+  blockedDays Int[]                         // массив дней недели (1=Пн … 5=Пт)
+  msgTeacher  String
+  msgStudent  String
+  updatedAt   DateTime @updatedAt
+}
