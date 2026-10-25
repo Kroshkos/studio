@@ -1,14 +1,35 @@
+// Общие типы сервиса видеостудии
+
+export type StageKey = 'waiting' | 'recording' | 'processing' | 'sent';
+
+export interface BookingStage {
+  id: number;
+  key: StageKey;
+  label: string;
+  order: number;
+}
+
+export interface DepartmentRef {
+  id: number;
+  name: string;
+}
+
 export interface Booking {
   id: string;
-  name: string;
   phone: string;
-  email?: string;
-  purpose?: string;
+  email: string;
+  purpose?: string | null;
   role: 'teacher' | 'student';
-  date: string;
-  slot: string;
-  dateLabel?: string;
+  date: string;        // YYYY-MM-DD
+  slot: string;        // "09:00"
+  dateLabel?: string | null;
+  stageKey: StageKey;
+  stage?: BookingStage;
+  departmentId?: number | null;
+  department?: DepartmentRef | null;
+  createdBy: string;   // guest | admin | <название подразделения>
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Slot {
@@ -35,13 +56,25 @@ export interface StudioConfig {
   msgStudent: string;
 }
 
-export interface AdminLoginResponse {
+export type UserRole = 'admin' | 'department';
+
+export interface LoginResponse {
+  role: UserRole;
+  name: string;
+  departmentId?: number;
   token: string;
 }
 
-export interface Stats {
+export interface Department {
+  id: number;
+  name: string;
+  createdAt: string;
+  _count?: { bookings: number };
+}
+
+export interface DashboardData {
   total: number;
-  upcoming: number;
   teachers: number;
   students: number;
+  stages: { key: StageKey; label: string; count: number }[];
 }

@@ -1,15 +1,33 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { Prisma } from 'generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { UpdateBookingDto } from './dto/update-booking.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
+import { CreateDepartmentDto } from './dto/create-department.dto';
 
 // Рабочие часы студии: слоты 09:00 … 16:00 (последний старт — STUDIO_LAST_HOUR - 1)
 export const STUDIO_FIRST_HOUR = 9;
 export const STUDIO_LAST_HOUR = 17;
 
-// Схема дней недели в конфиге: 1=Пн … 7=Вс
+export const STAGE_ORDER = ['waiting', 'recording', 'processing', 'sent'] as const;
+export type StageKey = (typeof STAGE_ORDER)[number];
+
+export const DEFAULT_STAGES = [
+  { key: 'waiting', label: 'Ожидает записи', order: 1 },
+  { key: 'recording', label: 'Запись видео', order: 2 },
+  { key: 'processing', label: 'Обработка видео', order: 3 },
+  { key: 'sent', label: 'Видео отправлено', order: 4 },
+];
+
 export type StudioConfigView = {
   id: number;
   blockedDays: number[];
@@ -22,58 +40,249 @@ export type StudioConfigView = {
 export class StudioService {
   constructor(private prisma: PrismaService) {}
 
-  // --- Бронирования ---
-  async createBooking(dto: CreateBookingDto) {
-    const { date, slot } = dto;
+  private validSlots(): string[] {
+    return Array.from({ length: STUDIO_LAST_HOUR - STUDIO_FIRST_HOUR }, (_, i) =>
+      `${STUDIO_FIRST_HOUR + i}:00`.padStart(5, '0'),
+    );
+  }
 
-    // Валидация формата даты и диапазона слотов до обращения к БД
+  // --- Аутентификация ---
+
+  // Единая точка входа: сначала проверяем администратора, затем подразделение.
+  validateAdmin(login: string, password: string): boolean {
+    const adminLogin = process.env.ADMIN_LOGIN;
+    const adminPass = process.env.ADMIN_PASSWORD;
+
+    // Секретов по умолчанию быть не должно: если переменные не заданы — доступ запрещён
+    if (!adminLogin || !adminPass) {
+      console.error(
+        'ADMIN_LOGIN/ADMIN_PASSWORD не заданы в переменных окружения — вход администратора отключён',
+      );
+      return false;
+    }
+
+    // Сравнение через timingSafeEqual, чтобы не светить длину/байты пароля через время ответа
+    const a = Buffer.from(password);
+    const b = Buffer.from(adminPass);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b) && login === adminLogin;
+  }
+
+  async validateDepartment(login: string, password: string) {
+    const dept = await this.prisma.department.findUnique({ where: { name: login } });
+    if (!dept) return null;
+    const ok = await bcrypt.compare(password, dept.password);
+    if (!ok) return null;
+    return { departmentId: dept.id, departmentName: dept.name };
+  }
+
+  // --- Подразделения (администрирует администратор) ---
+
+  listDepartments() {
+    return this.prisma.department.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        _count: { select: { bookings: true } },
+      },
+    });
+  }
+
+  async createDepartment(dto: CreateDepartmentDto) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Укажите наименование подразделения');
+    const hash = await bcrypt.hash(dto.password, 10);
+    try {
+      const dept = await this.prisma.department.create({ data: { name, password: hash } });
+      return { id: dept.id, name: dept.name, createdAt: dept.createdAt };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Подразделение с таким наименованием уже существует');
+      }
+      throw e;
+    }
+  }
+
+  async updateDepartment(id: number, dto: CreateDepartmentDto) {
+    const exists = await this.prisma.department.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('Подразделение не найдено');
+    const data: { name?: string; password?: string } = {};
+    if (dto.name && dto.name.trim() !== exists.name) data.name = dto.name.trim();
+    if (dto.password) data.password = await bcrypt.hash(dto.password, 10);
+    try {
+      const dept = await this.prisma.department.update({
+        where: { id },
+        data,
+        select: { id: true, name: true, createdAt: true },
+      });
+      return dept;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Подразделение с таким наименованием уже существует');
+      }
+      throw e;
+    }
+  }
+
+  async deleteDepartment(id: number) {
+    const exists = await this.prisma.department.findUnique({ where: { id } });
+    if (!exists) throw new NotFoundException('Подразделение не найдено');
+    // Бронирования подразделения остаются, но отвязываются (ON DELETE SET NULL)
+    return this.prisma.department.delete({ where: { id } });
+  }
+
+  // --- Этапы (справочник) ---
+  async ensureStages() {
+    for (const s of DEFAULT_STAGES) {
+      const existing = await this.prisma.bookingStage.findUnique({ where: { key: s.key } });
+      if (!existing) {
+        try {
+          await this.prisma.bookingStage.create({ data: s });
+        } catch (e) {
+          if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+        }
+      }
+    }
+  }
+
+  listStages() {
+    return this.prisma.bookingStage.findMany({ orderBy: { order: 'asc' } });
+  }
+
+  // --- Бронирования ---
+
+  private assertValidDate(date: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('Некорректный формат даты. Ожидается YYYY-MM-DD');
     }
-    const validSlots = Array.from({ length: STUDIO_LAST_HOUR - STUDIO_FIRST_HOUR }, (_, i) =>
-      `${STUDIO_FIRST_HOUR + i}:00`.padStart(5, '0'),
-    );
-    if (!validSlots.includes(slot)) {
-      throw new BadRequestException(`Некорректный слот. Доступны: ${validSlots.join(', ')}`);
+  }
+
+  private assertValidSlot(slot: string) {
+    if (!this.validSlots().includes(slot)) {
+      throw new BadRequestException(`Некорректный слот. Доступны: ${this.validSlots().join(', ')}`);
     }
+  }
+
+  private bookingInclude() {
+    return {
+      stage: true,
+      department: { select: { id: true, name: true } },
+    } as const;
+  }
+
+  async createBooking(dto: CreateBookingDto, opts?: { departmentId?: number; createdBy?: string }) {
+    this.assertValidDate(dto.date);
+    this.assertValidSlot(dto.slot);
+    await this.ensureStages();
 
     try {
       // Атомарное создание: уникальный индекс @@unique([date, slot]) защищает от гонок
-      return await this.prisma.booking.create({
+      const booking = await this.prisma.booking.create({
         data: {
-          ...dto,
+          phone: dto.phone,
+          email: dto.email,
+          purpose: dto.purpose,
+          role: dto.role,
+          date: dto.date,
+          slot: dto.slot,
           // Формируем метку из UTC-компонентов, чтобы не зависеть от таймзоны сервера
-          // (new Date('YYYY-MM-DD') парсится как полночь UTC)
-          dateLabel: new Date(`${date}T00:00:00Z`).toLocaleDateString('ru-RU', { timeZone: 'UTC' }),
+          dateLabel: new Date(`${dto.date}T00:00:00Z`).toLocaleDateString('ru-RU', {
+            timeZone: 'UTC',
+          }),
+          stageKey: 'waiting',
+          departmentId: opts?.departmentId ?? null,
+          createdBy: opts?.createdBy ?? 'guest',
         },
+        include: this.bookingInclude(),
       });
+      return booking;
     } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException('Этот слот уже занят');
       }
       throw e;
     }
   }
 
-  async getAllBookings() {
-    return this.prisma.booking.findMany({ orderBy: [{ date: 'asc' }, { slot: 'asc' }] });
+  // Список бронирований. departmentId — фильтрация по подразделению (для «Мои записи»).
+  async getAllBookings(departmentId?: number) {
+    await this.ensureStages();
+    return this.prisma.booking.findMany({
+      where: departmentId ? { departmentId } : {},
+      orderBy: [{ date: 'asc' }, { slot: 'asc' }],
+      include: this.bookingInclude(),
+    });
   }
 
   // Публичная занятость: только дата и слот, без персональных данных
   async getOccupiedSlots() {
-    const bookings = await this.prisma.booking.findMany({
+    return this.prisma.booking.findMany({
       select: { date: true, slot: true },
       orderBy: [{ date: 'asc' }, { slot: 'asc' }],
     });
-    return bookings;
   }
 
-  async deleteBooking(id: string) {
+  async updateBooking(id: string, dto: UpdateBookingDto) {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking) throw new NotFoundException('Бронирование не найдено');
+
+    if (dto.date !== undefined) this.assertValidDate(dto.date);
+    if (dto.slot !== undefined) this.assertValidSlot(dto.slot);
+    if (dto.stageKey !== undefined) await this.ensureStages();
+
+    const date = dto.date ?? booking.date;
+    const slot = dto.slot ?? booking.slot;
+
+    try {
+      return await this.prisma.booking.update({
+        where: { id },
+        data: {
+          phone: dto.phone,
+          email: dto.email,
+          purpose: dto.purpose,
+          role: dto.role,
+          date: dto.date,
+          slot: dto.slot,
+          stageKey: dto.stageKey,
+          departmentId: dto.departmentId,
+          dateLabel:
+            dto.date !== undefined
+              ? new Date(`${dto.date}T00:00:00Z`).toLocaleDateString('ru-RU', { timeZone: 'UTC' })
+              : undefined,
+        },
+        include: this.bookingInclude(),
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`Слот ${slot} на ${date} уже занят`);
+      }
+      throw e;
+    }
+  }
+
+  async setBookingStage(id: string, stageKey: StageKey) {
+    if (!STAGE_ORDER.includes(stageKey)) {
+      throw new BadRequestException('Неизвестный этап');
+    }
+    await this.ensureStages();
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking) throw new NotFoundException('Бронирование не найдено');
+    return this.prisma.booking.update({
+      where: { id },
+      data: { stageKey },
+      include: this.bookingInclude(),
+    });
+  }
+
+  async deleteBooking(id: string, departmentId?: number) {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking) throw new NotFoundException('Бронирование не найдено');
+    // Подразделение может удалять только свои записи
+    if (departmentId !== undefined && booking.departmentId !== departmentId) {
+      throw new UnauthorizedException('Нет доступа к этой записи');
+    }
     return this.prisma.booking.delete({ where: { id } });
   }
 
@@ -81,10 +290,33 @@ export class StudioService {
     return this.prisma.booking.deleteMany();
   }
 
+  // --- Дашборд ---
+  async getDashboard() {
+    await this.ensureStages();
+    const stages = await this.prisma.bookingStage.findMany({ orderBy: { order: 'asc' } });
+    const grouped = await this.prisma.booking.groupBy({
+      by: ['stageKey'],
+      _count: { _all: true },
+    });
+    const countOf = (key: string) =>
+      grouped.find((g) => g.stageKey === key)?._count._all ?? 0;
+
+    const [total, teachers, students] = await Promise.all([
+      this.prisma.booking.count(),
+      this.prisma.booking.count({ where: { role: 'teacher' } }),
+      this.prisma.booking.count({ where: { role: 'student' } }),
+    ]);
+
+    return {
+      total,
+      teachers,
+      students,
+      stages: stages.map((s) => ({ key: s.key, label: s.label, count: countOf(s.key) })),
+    };
+  }
+
   async getSlotsForDate(date: string, role: 'teacher' | 'student') {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new BadRequestException('Некорректный формат даты. Ожидается YYYY-MM-DD');
-    }
+    this.assertValidDate(date);
 
     const config = await this.getConfig();
     // Публичный ответ: только статусы слотов и флаг блокировки дня — без персональных данных
@@ -92,7 +324,7 @@ export class StudioService {
       where: { date },
       select: { slot: true },
     });
-    const occupiedSlots = bookings.map(b => b.slot);
+    const occupiedSlots = bookings.map((b) => b.slot);
 
     const isWeekend = this.isWeekendDate(date);
     // Дни недели нормализованы к схеме конфига: 1=Пн … 7=Вс
@@ -108,11 +340,7 @@ export class StudioService {
     }
 
     // Генерация слотов в рамках рабочих часов студии
-    const slots = Array.from(
-      { length: STUDIO_LAST_HOUR - STUDIO_FIRST_HOUR },
-      (_, i) => `${STUDIO_FIRST_HOUR + i}:00`.padStart(5, '0'),
-    );
-    const slotsWithStatus = slots.map(slot => ({
+    const slotsWithStatus = this.validSlots().map((slot) => ({
       slot,
       booked: occupiedSlots.includes(slot),
     }));
@@ -142,16 +370,15 @@ export class StudioService {
           data: {
             id: 1,
             blockedDays: [],
-            msgTeacher: 'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
-            msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
+            msgTeacher:
+              'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
+            msgStudent:
+              'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
           },
         });
       } catch (e) {
         // гонка при параллельном создании — записью владел другой процесс, читаем её
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === 'P2002'
-        ) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           config = await this.prisma.studioConfig.findUniqueOrThrow({ where: { id: 1 } });
         } else {
           throw e;
@@ -162,7 +389,7 @@ export class StudioService {
     // Приводим к единой схеме дней недели: 1=Пн … 7=Вс
     // (в старых данных могло быть сохранено значение 0=Вс из-за рассинхрона с getDay())
     const normalizedBlockedDays = Array.from(
-      new Set((config.blockedDays ?? []).map(d => (d === 0 ? 7 : d))),
+      new Set((config.blockedDays ?? []).map((d) => (d === 0 ? 7 : d))),
     ).sort((a, b) => a - b);
 
     return { ...config, blockedDays: normalizedBlockedDays };
@@ -173,7 +400,7 @@ export class StudioService {
 
     const blockedDays =
       dto.blockedDays !== undefined
-        ? Array.from(new Set(dto.blockedDays.map(d => (d === 0 ? 7 : d)))).sort((a, b) => a - b)
+        ? Array.from(new Set(dto.blockedDays.map((d) => (d === 0 ? 7 : d)))).sort((a, b) => a - b)
         : undefined;
 
     const updated = await this.prisma.studioConfig.update({
@@ -191,34 +418,25 @@ export class StudioService {
   // --- Отчёт ---
   async getReportCsv() {
     const bookings = await this.getAllBookings();
+    const stageLabel = (key: string) =>
+      DEFAULT_STAGES.find((s) => s.key === key)?.label ?? key;
     // преобразование в формат CSV
-    const headers = ['№','Дата','Время','ФИО','Роль','Телефон','Email','Тема','Дата создания'];
+    const headers = [
+      '№', 'Дата', 'Время', 'Телефон', 'Email', 'Роль', 'Подразделение',
+      'Тема', 'Этап', 'Создано',
+    ];
     const rows = bookings.map((b, i) => [
-      i+1, b.dateLabel || b.date, b.slot, b.name,
+      i + 1,
+      b.dateLabel || b.date,
+      b.slot,
+      b.phone,
+      b.email,
       b.role === 'teacher' ? 'Преподаватель' : 'Студент',
-      b.phone, b.email || '', b.purpose || '',
+      b.department?.name ?? '—',
+      b.purpose || '',
+      stageLabel(b.stageKey),
       new Date(b.createdAt).toLocaleString('ru-RU'),
     ]);
     return { headers, rows };
-  }
-
-  // --- Аутентификация администратора (вспомогательная) ---
-  validateAdmin(login: string, password: string): boolean {
-    const adminLogin = process.env.ADMIN_LOGIN;
-    const adminPass = process.env.ADMIN_PASSWORD;
-
-    // Секретов по умолчанию быть не должно: если переменные не заданы — доступ запрещён
-    if (!adminLogin || !adminPass) {
-      console.error(
-        'ADMIN_LOGIN/ADMIN_PASSWORD не заданы в переменных окружения — вход администратора отключён',
-      );
-      return false;
-    }
-
-    // Сравнение через timingSafeEqual, чтобы не светить длину/байты пароля через время ответа
-    const a = Buffer.from(password);
-    const b = Buffer.from(adminPass);
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b) && login === adminLogin;
   }
 }

@@ -38,24 +38,48 @@ model CasbinRule {
   @@map("casbin_rule")
 }
 
+// Подразделение — учётная запись пользователя сервиса.
+// Логин = наименование подразделения, пароль задаёт администратор.
+model Department {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  password  String // bcrypt hash
+  createdAt DateTime  @default(now())
+  bookings  Booking[]
+}
+
+// Этапы обработки записи: waiting → recording → processing → sent
+model BookingStage {
+  id        Int       @id @default(autoincrement())
+  key       String    @unique // waiting | recording | processing | sent
+  label     String
+  order     Int
+  bookings  Booking[]
+}
+
 model Booking {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String
-  email     String?
-  purpose   String?
-  role      String   // "teacher" | "student"
-  date      String   // YYYY-MM-DD
-  slot      String   // "09:00"
-  dateLabel String?
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  phone        String
+  email        String
+  purpose      String?
+  role         String // "teacher" | "student"
+  date         String // YYYY-MM-DD
+  slot         String // "09:00"
+  dateLabel    String?
+  stageKey     String   @default("waiting")
+  stage        BookingStage @relation(fields: [stageKey], references: [key])
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  createdBy    String   @default("guest") // "guest" | "admin" | имя подразделения
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@unique([date, slot]) // защита от двойного бронирования одного слота (в т.ч. при гонках)
 }
 
 model StudioConfig {
-  id          Int      @id @default(1)       // всегда одна запись
-  blockedDays Int[]                          // массив дней недели (1=Пн … 7=Вс)
+  id          Int      @id @default(1) // всегда одна запись
+  blockedDays Int[] // массив дней недели (1=Пн … 7=Вс)
   msgTeacher  String
   msgStudent  String
   updatedAt   DateTime @updatedAt

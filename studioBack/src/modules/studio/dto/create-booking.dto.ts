@@ -1,9 +1,18 @@
 import { IsString, IsNotEmpty, IsEmail, IsOptional, IsIn, Matches } from 'class-validator';
 
 export class CreateBookingDto {
-  @IsString() @IsNotEmpty() name: string;
-  @IsString() @IsNotEmpty() phone: string;
-  @IsEmail() @IsOptional() email?: string;
+  // Маска телефона: +7 (XXX) XXX-XX-XX
+  @IsString()
+  @Matches(/^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/, {
+    message: 'Телефон должен быть в формате +7 (999) 999-99-99',
+  })
+  phone: string;
+
+  // Email обязателен — на него администратор высылает готовое видео
+  @IsEmail({}, { message: 'Укажите корректный email для отправки готового видео' })
+  @IsNotEmpty()
+  email: string;
+
   @IsString() @IsOptional() purpose?: string;
   @IsIn(['teacher', 'student']) role: 'teacher' | 'student';
   @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Дата должна быть в формате YYYY-MM-DD' })

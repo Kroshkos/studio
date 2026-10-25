@@ -1,50 +1,51 @@
-import React from 'react';
-import { OccupiedSlot } from '../types';
+import React, { useEffect, useState } from 'react';
+import type { Booking } from '../types';
+import { getMyBookings } from '../api/studio';
+import BookingCard from './BookingCard';
 
 interface MyBookingsProps {
-  occupied: OccupiedSlot[];
+  refreshKey?: number;
 }
 
-const MyBookings: React.FC<MyBookingsProps> = ({ occupied }) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+// Раздел «Мои записи» подразделения: только его бронирования (через GET /studio/my/bookings)
+const MyBookings: React.FC<MyBookingsProps> = ({ refreshKey }) => {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Группируем занятость по дате: дата -> список слотов
-  const byDate = new Map<string, string[]>();
-  for (const o of occupied) {
-    if (o.date < todayKey) continue; // только предстоящие
-    const list = byDate.get(o.date) ?? [];
-    list.push(o.slot);
-    byDate.set(o.date, list);
-  }
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getMyBookings();
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      setBookings(data.filter(b => b.date >= todayKey));
+    } catch (err: any) {
+      if (err?.response?.status === 401) setError('Сессия истекла, войдите заново');
+      else setError('Не удалось загрузить записи');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const upcoming = Array.from(byDate.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(0, 8);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [refreshKey]);
 
-  if (upcoming.length === 0) {
+  if (loading) return <div className="empty-state">Загрузка…</div>;
+  if (error) return <div className="status-msg show error">{error}</div>;
+  if (bookings.length === 0) {
     return (
-      <div className="empty-state" style={{ padding: '20px' }}>
-        <div className="icon">📭</div>Предстоящих записей нет
+      <div className="empty-state" style={{ padding: 24 }}>
+        <div className="icon">📭</div>
+        У вашего подразделения пока нет предстоящих записей
       </div>
     );
   }
 
   return (
-    <>
-      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Показаны предстоящие занятые слоты (без персональных данных)
-      </div>
-      {upcoming.map(([date, slots]) => (
-        <div key={date} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(10,74,122,0.2)', fontSize: '12px' }}>
-          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{date} — занято</div>
-          <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
-            {slots.sort().join(', ')}
-          </div>
-        </div>
-      ))}
-    </>
+    <div className="booking-cards-grid">
+      {bookings.map(b => <BookingCard key={b.id} booking={b} />)}
+    </div>
   );
 };
 

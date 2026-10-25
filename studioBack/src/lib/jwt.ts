@@ -55,14 +55,24 @@ export const AdminJWTPayload = z.object({
 
 export type AdminJWTPayload = zod.infer<typeof AdminJWTPayload>;
 
+// Полезная нагрузка токена подразделения (выдаётся в POST /studio/auth/login)
+export const DepartmentJWTPayload = z.object({
+  departmentId: z.number(),
+  departmentName: z.string(),
+});
+
+export type DepartmentJWTPayload = zod.infer<typeof DepartmentJWTPayload>;
+
+const decodeType = (token: string): string | null =>
+  Jwt.decode(token, { complete: true })?.header?.['typ'] as string | undefined ?? null;
+
 export const getAdminTokenPayload = (token: string): AdminJWTPayload | null => {
   const key = getAppKey();
 
   try {
     // Проверяем заголовок: принимаем только токены типа admin-token,
-    // чтобы пользовательский local-user-token нельзя было использовать как админский
-    const header = Jwt.decode(token, { complete: true })?.header;
-    if (!header || header['typ'] !== 'admin-token') return null;
+    // чтобы пользовательский токен нельзя было использовать как админский
+    if (decodeType(token) !== 'admin-token') return null;
 
     const payload = Jwt.verify(token, key);
     const parseResult = AdminJWTPayload.safeParse(payload);
@@ -72,6 +82,25 @@ export const getAdminTokenPayload = (token: string): AdminJWTPayload | null => {
     return null;
   } catch (e) {
     console.log('Ошибка верификации админ-токена:', e);
+    return null;
+  }
+};
+
+export const getDepartmentTokenPayload = (token: string): DepartmentJWTPayload | null => {
+  const key = getAppKey();
+
+  try {
+    // Принимаем только токены типа department-token — админский токен здесь не подходит
+    if (decodeType(token) !== 'department-token') return null;
+
+    const payload = Jwt.verify(token, key);
+    const parseResult = DepartmentJWTPayload.safeParse(payload);
+    if (parseResult.success) {
+      return parseResult.data;
+    }
+    return null;
+  } catch (e) {
+    console.log('Ошибка верификации токена подразделения:', e);
     return null;
   }
 };
