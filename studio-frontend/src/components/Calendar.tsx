@@ -1,13 +1,13 @@
 import React from 'react';
 import { MONTHS_RU, WEEKDAYS_SHORT } from '../constants';
-import { StudioConfig, Booking } from '../types';
-import { dateKey, getMonthDays, isWeekend } from '../utils/dateHelpers';
+import { StudioConfig, OccupiedSlot } from '../types';
+import { dateKey, getMonthDays, isWeekend, isoDayOfWeek } from '../utils/dateHelpers';
 
 interface CalendarProps {
   year: number;
   month: number;
   config: StudioConfig;
-  bookings: Booking[];
+  occupied: OccupiedSlot[];
   selectedDate: Date | null;
   onSelectDate: (date: Date, isBlocked: boolean) => void;
   onPrevMonth: () => void;
@@ -15,22 +15,26 @@ interface CalendarProps {
 }
 
 const Calendar: React.FC<CalendarProps> = ({
-  year, month, config, bookings, selectedDate, onSelectDate, onPrevMonth, onNextMonth,
+  year, month, config, occupied, selectedDate, onSelectDate, onPrevMonth, onNextMonth,
 }) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days = getMonthDays(year, month);
 
+  // Множество занятых дат для быстрой проверки в календаре
+  const occupiedDates = new Set(occupied.map(o => o.date));
+
   const handleDateClick = (date: Date | null) => {
     if (!date) return;
-    const dow = date.getDay();
-    const isBlocked = config.blockedDays.includes(dow) && !isWeekend(date);
+    // В конфиге используется ISO-схема: 1=Пн … 7=Вс (а не getDay(): 0=Вс … 6=Сб)
+    const isoDow = isoDayOfWeek(date);
+    const isBlocked = config.blockedDays.includes(isoDow) && !isWeekend(date);
     if (date < today) return;
     onSelectDate(date, isBlocked);
   };
 
   const isSelected = (date: Date) => selectedDate && dateKey(selectedDate) === dateKey(date);
-  const hasBookings = (date: Date) => bookings.some(b => b.date === dateKey(date));
+  const hasBookings = (date: Date) => occupiedDates.has(dateKey(date));
 
   return (
     <div className="calendar">
@@ -43,10 +47,10 @@ const Calendar: React.FC<CalendarProps> = ({
         {WEEKDAYS_SHORT.map(d => <div key={d} className="cal-dow">{d}</div>)}
         {days.map((date, idx) => {
           if (!date) return <div key={idx} className="cal-day empty" />;
-          const dow = date.getDay();
+          const isoDow = isoDayOfWeek(date);
           const isWeekendDay = isWeekend(date);
           const isPast = date < today;
-          const isBlocked = config.blockedDays.includes(dow) && !isWeekendDay;
+          const isBlocked = config.blockedDays.includes(isoDow) && !isWeekendDay;
           const classes = ['cal-day'];
           if (isWeekendDay) classes.push('weekend');
           if (isPast) classes.push('past');

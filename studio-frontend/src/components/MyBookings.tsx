@@ -1,16 +1,26 @@
 import React from 'react';
-import { Booking } from '../types';
+import { OccupiedSlot } from '../types';
 
 interface MyBookingsProps {
-  bookings: Booking[];
+  occupied: OccupiedSlot[];
 }
 
-const MyBookings: React.FC<MyBookingsProps> = ({ bookings }) => {
+const MyBookings: React.FC<MyBookingsProps> = ({ occupied }) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const upcoming = bookings
-    .filter(b => new Date(b.date) >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.slot.localeCompare(b.slot))
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  // Группируем занятость по дате: дата -> список слотов
+  const byDate = new Map<string, string[]>();
+  for (const o of occupied) {
+    if (o.date < todayKey) continue; // только предстоящие
+    const list = byDate.get(o.date) ?? [];
+    list.push(o.slot);
+    byDate.set(o.date, list);
+  }
+
+  const upcoming = Array.from(byDate.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(0, 8);
 
   if (upcoming.length === 0) {
@@ -24,13 +34,13 @@ const MyBookings: React.FC<MyBookingsProps> = ({ bookings }) => {
   return (
     <>
       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Показаны предстоящие записи (все пользователи)
+        Показаны предстоящие занятые слоты (без персональных данных)
       </div>
-      {upcoming.map(b => (
-        <div key={b.id} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(10,74,122,0.2)', fontSize: '12px' }}>
-          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{b.dateLabel || b.date} — {b.slot}</div>
+      {upcoming.map(([date, slots]) => (
+        <div key={date} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(10,74,122,0.2)', fontSize: '12px' }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{date} — занято</div>
           <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
-            {b.name} • <span className={`role-badge ${b.role}`}>{b.role === 'teacher' ? 'Преподаватель' : 'Студент'}</span>
+            {slots.sort().join(', ')}
           </div>
         </div>
       ))}

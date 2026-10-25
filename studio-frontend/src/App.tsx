@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
-import { getSlots, getAllBookings, getConfig, createBooking, setAdminToken, adminLogin } from './api/studio';
-import { Booking, SlotsResponse, StudioConfig } from './types';
+import { getSlots, getOccupiedSlots, getConfig, createBooking, setAdminToken as applyAdminToken, adminLogin } from './api/studio';
+import { OccupiedSlot, SlotsResponse, StudioConfig } from './types';
 import Calendar from './components/Calendar';
 import TimeSlots from './components/TimeSlots';
 import BookingForm from './components/BookingForm';
@@ -22,7 +22,8 @@ function App() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [slotsData, setSlotsData] = useState<SlotsResponse | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  // Публичная занятость (дата+слот, без ПДн) — для календаря и списка предстоящих записей
+  const [occupied, setOccupied] = useState<OccupiedSlot[]>([]);
   const [config, setConfig] = useState<StudioConfig>({ blockedDays: [], msgTeacher: '', msgStudent: '' });
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
@@ -43,18 +44,23 @@ function App() {
 
   useEffect(() => {
     if (adminToken) {
-      setAdminToken(adminToken);
+      applyAdminToken(adminToken); // прокидываем Bearer-токен в axios для админ-запросов
       sessionStorage.setItem('adminToken', adminToken);
     } else {
+      applyAdminToken(null);
       sessionStorage.removeItem('adminToken');
     }
   }, [adminToken]);
 
   useEffect(() => {
     const loadInitialData = async () => {
-      const [cfg, allBookings] = await Promise.all([getConfig(), getAllBookings()]);
-      setConfig(cfg);
-      setBookings(allBookings);
+      try {
+        const [cfg, occupiedSlots] = await Promise.all([getConfig(), getOccupiedSlots()]);
+        setConfig(cfg);
+        setOccupied(occupiedSlots);
+      } catch (err) {
+        console.error('Не удалось загрузить начальные данные:', err);
+      }
     };
     loadInitialData();
   }, []);
@@ -114,9 +120,9 @@ function App() {
       setPhone('');
       setEmail('');
       setPurpose('');
-      // Обновить данные
-      const [newBookings, newConfig] = await Promise.all([getAllBookings(), getConfig()]);
-      setBookings(newBookings);
+      // Обновить данные (публичные эндпоинты — без ПДн)
+      const [newOccupied, newConfig] = await Promise.all([getOccupiedSlots(), getConfig()]);
+      setOccupied(newOccupied);
       setConfig(newConfig);
     } catch (err: any) {
       setStatusMsg({ text: err.response?.data?.message || 'Ошибка бронирования', type: 'error' });
@@ -127,12 +133,12 @@ function App() {
   const handleAdminLogin = async () => {
     try {
       const res = await adminLogin(login, password);
-      setAdminToken(res.token);
-      setAdminToken(res.token);
+      setAdminToken(res.token); // useEffect применит токен в axios и sessionStorage
       setIsLoginModalOpen(false);
       setIsAdminModalOpen(true);
       setLogin('');
       setPassword('');
+      setLoginError('');
     } catch (err) {
       setLoginError('Неверный логин или пароль');
     }
@@ -148,8 +154,9 @@ function App() {
 
   const handleConfigUpdate = (newConfig: StudioConfig) => setConfig(newConfig);
   const handleBookingsChange = async () => {
-    const newBookings = await getAllBookings();
-    setBookings(newBookings);
+    // Админ удалил/изменил бронирования — обновляем публичную занятость
+    const newOccupied = await getOccupiedSlots();
+    setOccupied(newOccupied);
   };
 
   const isSubmitDisabled = !selectedDate || !selectedSlot;
@@ -158,7 +165,7 @@ function App() {
     <div className="app">
       <header>
         <div className="header-left">
-          <div className="logo-wrap"><img src="logo.png" alt="Логотип" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling!.style.display = 'flex'; }} /><div className="logo-placeholder" style={{ display: 'none' }}>Название</div></div>
+          <div className="logo-wrap"><img src="logo.png" alt="Логотип" onError={(e) => { const img = e.currentTarget; img.style.display = 'none'; const placeholder = img.nextElementSibling as HTMLElement | null; if (placeholder) placeholder.style.display = 'flex'; }} /><div className="logo-placeholder" style={{ display: 'none' }}>Название</div></div>
           <div className="header-title"><h1 className="glow-accent">ВОЕННО-МЕДИЦИНСКАЯ АКАДЕМИЯ</h1><p>Запись в лабораторию видеолекций</p></div>
         </div>
         <div className="header-right">
@@ -188,7 +195,7 @@ function App() {
               year={year}
               month={month}
               config={config}
-              bookings={bookings}
+              occupied={occupied}
               selectedDate={selectedDate}
               onSelectDate={handleSelectDate}
               onPrevMonth={() => setMonth(m => m === 0 ? (setYear(y => y-1), 11) : m-1)}
@@ -207,7 +214,8 @@ function App() {
           <div className="card" style={{ marginBottom: 28 }}>
             <div className="card-title"><span className="icon">🕐</span> Выбор времени</div>
             {!selectedDate && <div className="empty-state"><div className="icon">📅</div>Выберите дату в календаре</div>}
-            {selectedDate && (
+            {selectedDate && loading && <div className="empty-state">Загрузка слотов…</div>}
+            {selectedDate && !loading && (
               <TimeSlots
                 slots={slotsData?.slots || []}
                 selectedSlot={selectedSlot}
@@ -232,8 +240,8 @@ function App() {
           </div>
 
           <div className="card" style={{ marginTop: 28 }}>
-            <div className="card-title"><span className="icon">📋</span> Мои записи</div>
-            <MyBookings bookings={bookings} />
+            <div className="card-title"><span className="icon">📋</span> Предстоящие записи</div>
+            <MyBookings occupied={occupied} />
           </div>
         </div>
       </main>

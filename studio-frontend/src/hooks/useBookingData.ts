@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react';
-import { getAllBookings, getConfig } from '../api/studio';
-import { Booking, StudioConfig } from '../types';
+import { getOccupiedSlots, getConfig } from '../api/studio';
+import { OccupiedSlot, StudioConfig } from '../types';
 
 export const useBookingData = () => {
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [occupied, setOccupied] = useState<OccupiedSlot[]>([]);
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     setLoading(true);
-    const [b, c] = await Promise.all([getAllBookings(), getConfig()]);
-    setBookings(b);
+    // Публичные эндпоинты — не требуют админ-токена и не раскрывают ПДн
+    const [o, c] = await Promise.all([getOccupiedSlots(), getConfig()]);
+    setOccupied(o);
     setConfig(c);
     setLoading(false);
   };
 
   useEffect(() => { refresh(); }, []);
 
-  return { bookings, config, loading, refresh };
+  return { occupied, config, loading, refresh };
 };

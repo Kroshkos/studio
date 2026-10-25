@@ -42,7 +42,9 @@ export class StudioService {
       return await this.prisma.booking.create({
         data: {
           ...dto,
-          dateLabel: new Date(date).toLocaleDateString('ru-RU'),
+          // Формируем метку из UTC-компонентов, чтобы не зависеть от таймзоны сервера
+          // (new Date('YYYY-MM-DD') парсится как полночь UTC)
+          dateLabel: new Date(`${date}T00:00:00Z`).toLocaleDateString('ru-RU', { timeZone: 'UTC' }),
         },
       });
     } catch (e) {

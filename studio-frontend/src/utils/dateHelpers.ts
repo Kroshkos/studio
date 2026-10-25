@@ -1,4 +1,4 @@
-import { MONTHS_RU, WEEKDAYS_RU } from '../constants'; // можно вынести константы
+import { MONTHS_RU } from '../constants';
 
 export const formatDateRu = (date: Date): string => {
   return `${date.getDate()} ${MONTHS_RU[date.getMonth()].toLowerCase()} ${date.getFullYear()} г.`;
@@ -24,4 +24,10 @@ export const getMonthDays = (year: number, month: number): (Date | null)[] => {
 export const isWeekend = (date: Date): boolean => {
   const dow = date.getDay();
   return dow === 0 || dow === 6;
+};
+
+// ISO-нумерация дней недели: 1=Пн … 7=Вс (соответствует схеме blockedDays на бэкенде)
+export const isoDayOfWeek = (date: Date): number => {
+  const dow = date.getDay(); // 0=Вс … 6=Сб
+  return dow === 0 ? 7 : dow;
 };

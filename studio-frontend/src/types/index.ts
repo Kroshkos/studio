@@ -23,8 +23,14 @@ export interface SlotsResponse {
   slots: Slot[];
 }
 
+// Публичная занятость слота (без персональных данных)
+export interface OccupiedSlot {
+  date: string;
+  slot: string;
+}
+
 export interface StudioConfig {
-  blockedDays: number[];        // 1=Пн ... 5=Пт
+  blockedDays: number[];        // схема ISO: 1=Пн … 7=Вс
   msgTeacher: string;
   msgStudent: string;
 }

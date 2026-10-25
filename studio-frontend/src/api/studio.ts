@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Booking, SlotsResponse, StudioConfig, AdminLoginResponse, Stats } from '../types';
+import { Booking, SlotsResponse, StudioConfig, AdminLoginResponse, OccupiedSlot } from '../types';
 
 const api = axios.create({
   baseURL: '/api/studio', // через Vite proxy
@@ -21,7 +21,7 @@ export const getSlots = (date: string, role: 'teacher' | 'student') =>
 
 // Занятость всех дат (только дата+слот, без персональных данных) — для календаря и публичного списка
 export const getOccupiedSlots = () =>
-  api.get<{ date: string; slot: string }[]>('/public/occupied').then(res => res.data);
+  api.get<OccupiedSlot[]>('/public/occupied').then(res => res.data);
 
 export const createBooking = (data: Omit<Booking, 'id' | 'createdAt' | 'dateLabel'>) =>
   api.post<Booking>('/bookings', data).then(res => res.data);
