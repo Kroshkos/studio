@@ -47,6 +47,35 @@ export const getJWTPayload = (token: string) => {
   return payload;
 };
 
+// Полезная нагрузка админ-токена (выдаётся в POST /studio/admin/login)
+export const AdminJWTPayload = z.object({
+  admin: z.literal(true),
+  login: z.string(),
+});
+
+export type AdminJWTPayload = zod.infer<typeof AdminJWTPayload>;
+
+export const getAdminTokenPayload = (token: string): AdminJWTPayload | null => {
+  const key = getAppKey();
+
+  try {
+    // Проверяем заголовок: принимаем только токены типа admin-token,
+    // чтобы пользовательский local-user-token нельзя было использовать как админский
+    const header = Jwt.decode(token, { complete: true })?.header;
+    if (!header || header['typ'] !== 'admin-token') return null;
+
+    const payload = Jwt.verify(token, key);
+    const parseResult = AdminJWTPayload.safeParse(payload);
+    if (parseResult.success) {
+      return parseResult.data;
+    }
+    return null;
+  } catch (e) {
+    console.log('Ошибка верификации админ-токена:', e);
+    return null;
+  }
+};
+
 export const createToken = (payload: object, type = 'local-user-token') => {
   const key = getAppKey();
 

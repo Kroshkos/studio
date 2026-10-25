@@ -1,5 +1,6 @@
 import {
-  Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Res, HttpCode, HttpStatus
+  Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Res, HttpCode, HttpStatus,
+  UnauthorizedException, BadRequestException, ForbiddenException, Put,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { StudioService } from './studio.service';
@@ -8,7 +9,6 @@ import { UpdateConfigDto } from './dto/update-config.dto';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { createToken } from '@/lib/jwt';
-import { UnauthorizedException, Put } from '@nestjs/common';
 import { Public } from '@/modules/auth/decorators/public.decorator';
 
 @Controller('studio')
@@ -22,14 +22,38 @@ export class StudioController {
   }
 
   @Public()
-  @Get('bookings')
-  async getAllBookings() {
-    return this.studioService.getAllBookings();
+  @Get('public/occupied')
+  async getOccupiedSlots() {
+    // Только дата+слот — без ФИО/телефона/email. Для календаря и публичного списка записей.
+    return this.studioService.getOccupiedSlots();
   }
 
   @Public()
   @Post('bookings')
   async createBooking(@Body() dto: CreateBookingDto) {
+    // Нельзя забронировать заблокированный день (с учётом схемы 1=Пн…7=Вс)
+    const slotsInfo = await this.studioService.getSlotsForDate(dto.date, dto.role);
+    if (slotsInfo.blocked) {
+      throw new ForbiddenException(slotsInfo.blockedMessage ?? 'Запись в этот день закрыта');
+    }
+
+    // Нельзя забронировать прошедшую дату/освободившийся слот сегодня
+    const now = new Date();
+    const todayKey = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    if (dto.date < todayKey) {
+      throw new BadRequestException('Нельзя забронировать прошедшую дату');
+    }
+    if (dto.date === todayKey) {
+      const hour = parseInt(dto.slot.split(':')[0], 10);
+      if (hour <= now.getHours()) {
+        throw new BadRequestException('Этот слот уже начался или завершился');
+      }
+    }
+
     return this.studioService.createBooking(dto);
   }
 
@@ -49,7 +73,14 @@ export class StudioController {
     return { token };
   }
 
-  // === Административные эндпоинты (требуют JWT) ===
+  // === Административные эндпоинты (требуют админ-JWT) ===
+  // Список всех бронирований содержит персональные данные — доступен только админу
+  @UseGuards(AdminGuard)
+  @Get('bookings')
+  async getAllBookings() {
+    return this.studioService.getAllBookings();
+  }
+
   @UseGuards(AdminGuard)
   @Delete('bookings/:id')
   async deleteBooking(@Param('id') id: string) {

@@ -49,11 +49,13 @@ model Booking {
   slot      String   // "09:00"
   dateLabel String?
   createdAt DateTime @default(now())
+
+  @@unique([date, slot]) // защита от двойного бронирования одного слота (в т.ч. при гонках)
 }
 
 model StudioConfig {
-  id          Int     @id @default(1)       // всегда одна запись
-  blockedDays Int[]                         // массив дней недели (1=Пн … 5=Пт)
+  id          Int      @id @default(1)       // всегда одна запись
+  blockedDays Int[]                          // массив дней недели (1=Пн … 7=Вс)
   msgTeacher  String
   msgStudent  String
   updatedAt   DateTime @updatedAt

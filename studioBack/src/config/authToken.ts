@@ -16,7 +16,7 @@ export async function initServiceToken() {
 
     SERVICE_APP_TOKEN = response.data.token;
     console.log('Сервис успешно авторизован.');
-    console.log(`Токен сервиса: ${SERVICE_APP_TOKEN}`);
+    // Не логируем сам токен — это секрет
   } catch (e) {
     if (axios.isAxiosError(e)) {
       console.log(e.name, e.message, e.status);
