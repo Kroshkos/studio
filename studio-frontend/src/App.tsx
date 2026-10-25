@@ -9,7 +9,7 @@ import Modal from './components/Modal';
 import { useSession } from './session';
 import { useBookingData } from './hooks/useBookingData';
 import { createBooking, getSlots } from './api/studio';
-import type { LoginResponse, Slot, StudioConfig } from './types';
+import type { LoginResponse, Slot } from './types';
 import { dateKey, formatDateRu } from './utils/dateHelpers';
 import { isValidEmail, isValidPhone } from './utils/phone';
 import './App.css';
@@ -172,8 +172,8 @@ const App: React.FC = () => {
           <AdminPanel
             token={session.token}
             config={config ?? { blockedDays: [], msgTeacher: '', msgStudent: '' }}
-            onConfigUpdate={(c: StudioConfig) => refresh()}
-            onDataChanged={() => refresh()}
+            onConfigUpdate={() => refresh()}
+            onBookingsChange={() => refresh()}
           />
         </Modal>
       </div>

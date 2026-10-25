@@ -4,6 +4,8 @@ import {
   Department, DashboardData, StageKey,
 } from '../types';
 
+export type { LoginResponse };
+
 const api = axios.create({
   baseURL: '/api/studio', // через Vite proxy
   headers: { 'Content-Type': 'application/json' },
