@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Booking, SlotsResponse, StudioConfig, AdminLoginResponse, Stats } from '../types';
+import { Booking, SlotsResponse, StudioConfig, AdminLoginResponse } from '../types';
 
 const api = axios.create({
   baseURL: '/api/studio', // через Vite proxy

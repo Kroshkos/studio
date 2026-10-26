@@ -1,4 +1,4 @@
-import { MONTHS_RU, WEEKDAYS_RU } from '../constants'; // можно вынести константы
+import { MONTHS_RU } from '../constants'; // можно вынести константы
 
 export const formatDateRu = (date: Date): string => {
   return `${date.getDate()} ${MONTHS_RU[date.getMonth()].toLowerCase()} ${date.getFullYear()} г.`;
