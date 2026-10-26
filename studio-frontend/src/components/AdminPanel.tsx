@@ -11,7 +11,8 @@ interface AdminPanelProps {
   onClose: () => void;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ token, config, onConfigUpdate, onBookingsChange, onClose }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ token, config, onConfigUpdate, onBookingsChange, onClose: _onClose }) => {
+  void _onClose;
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDays, setBlockedDays] = useState<number[]>(config.blockedDays);
   const [msgTeacher, setMsgTeacher] = useState(config.msgTeacher);

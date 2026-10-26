@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
-import { getSlots, getAllBookings, getConfig, createBooking, setAdminToken, adminLogin } from './api/studio';
+import { getSlots, getAllBookings, getConfig, createBooking, adminLogin } from './api/studio';
 import { Booking, SlotsResponse, StudioConfig } from './types';
 import Calendar from './components/Calendar';
 import TimeSlots from './components/TimeSlots';
@@ -24,7 +24,7 @@ function App() {
   const [slotsData, setSlotsData] = useState<SlotsResponse | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [config, setConfig] = useState<StudioConfig>({ blockedDays: [], msgTeacher: '', msgStudent: '' });
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
 
   // Admin state
@@ -158,7 +158,7 @@ function App() {
     <div className="app">
       <header>
         <div className="header-left">
-          <div className="logo-wrap"><img src="logo.png" alt="Логотип" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling!.style.display = 'flex'; }} /><div className="logo-placeholder" style={{ display: 'none' }}>Название</div></div>
+          <div className="logo-wrap"><img src="logo.png" alt="Логотип" onError={(e) => { const el = e.currentTarget; el.style.display = 'none'; const next = el.nextElementSibling as HTMLElement | null; if (next) next.style.display = 'flex'; }} /><div className="logo-placeholder" style={{ display: 'none' }}>Название</div></div>
           <div className="header-title"><h1 className="glow-accent">ВОЕННО-МЕДИЦИНСКАЯ АКАДЕМИЯ</h1><p>Запись в лабораторию видеолекций</p></div>
         </div>
         <div className="header-right">
