@@ -30,13 +30,17 @@ RUN cd backend \
     # а сгенерированный client.js делает require('.') — то есть обращается к пакету
     # @prisma/client по имени. Кладём его в node_modules, чтобы резолвился при запуске.
     && mkdir -p node_modules/generated \
+    && rm -rf node_modules/generated/prisma \
     && cp -r generated/prisma node_modules/generated/prisma \
     # кладём рядом со скомпилированным кодом файл модели casbin —
     # он читается в рантайме из рабочей директории
     && cp Casbin_role_model.conf dist/Casbin_role_model.conf \
     # prisma.service.js (dist/modules/prisma/) импортирует клиент как '../../../generated/prisma',
-    # что резолвится в backend/generated — кладём копию клиента по этому пути
-    && cp -r generated /build/backend/generated
+    # что резолвится в backend/generated — это и есть папка generated/ от `prisma generate`,
+    # поэтому дополнительно копировать её никуда не нужно.
+    # (раньше здесь был `cp -r generated /build/backend/generated`, что при попадании в
+    #  кэш-мусор слоя создавало рекурсию generated/generated — убрано намеренно)
+    && rm -rf /build/backend/generated/generated
 
 # ---------- Frontend (Vite/React) ----------
 COPY studio-frontend/package.json studio-frontend/package-lock.json ./frontend/
