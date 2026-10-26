@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
-import { getSlots, getAllBookings, getConfig, createBooking, setAdminToken, adminLogin } from './api/studio';
+import { getSlots, getAllBookings, getConfig, createBooking, adminLogin } from './api/studio';
 import { Booking, SlotsResponse, StudioConfig } from './types';
 import Calendar from './components/Calendar';
 import TimeSlots from './components/TimeSlots';
@@ -24,7 +24,7 @@ function App() {
   const [slotsData, setSlotsData] = useState<SlotsResponse | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [config, setConfig] = useState<StudioConfig>({ blockedDays: [], msgTeacher: '', msgStudent: '' });
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
 
   // Admin state
