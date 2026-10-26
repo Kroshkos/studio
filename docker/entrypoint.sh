@@ -3,6 +3,16 @@
 # Дальше все процессы (postgres, nest, nginx) поднимает supervisord.
 set -e
 
+# Переопределение конфигурации через переменные окружения (K8s/docker run -e).
+# Файл содержит строки вида NAME="${NAME:-default}" — source раскроет их,
+# сохранив уже заданные снаружи значения.
+if [ -f /etc/env-overrides.conf ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . /etc/env-overrides.conf
+    set +a
+fi
+
 export DB_USER="${DB_USER:-studio}"
 export DB_PASSWORD="${DB_PASSWORD:-studio}"
 export DB_NAME="${DB_NAME:-studio}"
@@ -13,13 +23,16 @@ export PG_VER PG_CLUSTER
 
 echo "[entrypoint] PostgreSQL ${PG_VER}, кластер: ${PG_CLUSTER}"
 
-# В docker-образе postinst создаёт кластер, но при некоторых сборках/кэшах
-# слой с данными может отсутствовать — инициализируем кластер при необходимости.
-if [ ! -d "/var/lib/postgresql/${PG_VER}/${PG_CLUSTER}" ]; then
-    echo "[entrypoint] каталог данных отсутствует, создаю кластер..."
-    pg_dropcluster --stop "${PG_VER}" main 2>/dev/null || true
-    # /run/postgresql может не существовать в контейнере (нет tmpfs от systemd)
-    mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+PG_DATA="/var/lib/postgresql/${PG_VER}/${PG_CLUSTER}"
+
+# /run/postgresql может не существовать в контейнере (нет tmpfs от systemd);
+# если поверх /var/lib/postgresql смонтирован volume, постинст-кластер виден
+# как пустая директория без PG_VERSION — считаем такой кластер неинициализированным.
+mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+if [ ! -f "${PG_DATA}/PG_VERSION" ]; then
+    echo "[entrypoint] каталог данных не инициализирован, пересоздаю кластер..."
+    pg_dropcluster --stop "${PG_VER}" "${PG_CLUSTER}" 2>/dev/null || true
+    rm -rf "${PG_DATA}"
     pg_createcluster --start "${PG_VER}" "${PG_CLUSTER}"
 fi
 
