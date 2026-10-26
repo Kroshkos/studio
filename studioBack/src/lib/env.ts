@@ -1,6 +1,16 @@
-const envPick = (key: string): string => {
-  if (!process.env[key])
+const envPick = (key: string, fallback?: string): string => {
+  if (!process.env[key]) {
+    // В продакшене (например, на Amvera) обязательные переменные должны быть
+    // заданы через панель «Переменные окружения». Fallback уместен только для
+    // локальной разработки.
+    if (fallback !== undefined) {
+      console.warn(
+        `[env] Переменная ${key} не задана — используется значение по умолчанию (только для dev)`,
+      );
+      return fallback;
+    }
     throw new Error(`Не указано обязательное поле в .env: ${key}`);
+  }
 
   return process.env[key];
 };
@@ -25,13 +35,15 @@ class AppEnv {
   readonly authServiceBackUrl: string;
 
   constructor() {
-    this.appId = envPick('APP_ID');
-    this.appName = envPick('APP_NAME');
-    this.appKey = envPick('APP_KEY');
-    this.baseUrl = envPick('BASE_URL');
-    this.frontUrl = envPick('FRONT_URL');
-    this.authServiceUrl = envPick('AUTH_SERVICE_URL');
-    this.authServiceBackUrl = envPick('AUTH_SERVICE_BACK_URL');
+    this.appId = envPick('APP_ID', 'studio-local');
+    this.appName = envPick('APP_NAME', 'video-studio');
+    this.appKey = envPick('APP_KEY', 'dev-only-insecure-key');
+    this.baseUrl = envPick('BASE_URL', 'http://localhost:3001');
+    // FRONT_URL поддерживает список origins через запятую (например, превью и
+    // продакшен-домены Amvera). Пустое значение включает CORS для всех источников.
+    this.frontUrl = envPick('FRONT_URL', '*');
+    this.authServiceUrl = envPick('AUTH_SERVICE_URL', 'http://localhost:3002');
+    this.authServiceBackUrl = envPick('AUTH_SERVICE_BACK_URL', 'http://localhost:3003');
 
     this.isInited = true;
   }

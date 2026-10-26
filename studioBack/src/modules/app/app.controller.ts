@@ -11,4 +11,10 @@ export class AppController {
   getOk(): string {
     return this.appService.getOk();
   }
+
+  // Healthcheck для платформ оркестрации (Amvera и др.)
+  @Get('health')
+  health() {
+    return { status: 'ok', uptime: process.uptime() };
+  }
 }

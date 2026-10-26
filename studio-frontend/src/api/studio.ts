@@ -4,8 +4,15 @@ import {
   Department, DashboardData, StageKey,
 } from '../types';
 
+export type { LoginResponse };
+
+// Базовый адрес API:
+// - в dev-режиме используется относительный путь '/api/studio' + прокси Vite;
+// - на хостинге (Amvera) задайте VITE_API_URL = https://<бэкенд>.amveranet/studio
+const API_BASE = import.meta.env.VITE_API_URL || '/api/studio';
+
 const api = axios.create({
-  baseURL: '/api/studio', // через Vite proxy
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -93,7 +100,7 @@ export const updateConfig = (config: Partial<StudioConfig>) =>
   api.put<StudioConfig>('/config', config).then(res => res.data);
 
 export const downloadReport = async (token: string): Promise<Blob> => {
-  const response = await axios.get('/api/studio/report', {
+  const response = await axios.get(`${API_BASE}/report`, {
     headers: { Authorization: `Bearer ${token}` },
     responseType: 'blob',
   });

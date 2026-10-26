@@ -1,0 +1,28 @@
+{
+  "version": "v0.2",
+  "apps": [
+    {
+      "name": "video-studio-backend",
+      "source_dir": "$PROJECT_DIR",
+      "env_vars": [
+        "DATABASE_URL",
+        "APP_KEY",
+        "APP_ID",
+        "APP_NAME",
+        "BASE_URL",
+        "FRONT_URL",
+        "ADMIN_LOGIN",
+        "ADMIN_PASSWORD"
+      ],
+      "build_command": "npm install && npx prisma generate && npm run build",
+      "run_command": "npx prisma migrate deploy && node dist/main.js",
+      "port": "3001",
+      "healthcheck_path": "/health",
+      "regions": ["ru-3"],
+      "instance_size": "small",
+      "base_image": "ghcr.io/amverarun/nodejs:20",
+      "auto_scale_enabled": false,
+      "app_start_delay": 15
+    }
+  ]
+}
