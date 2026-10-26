@@ -13,6 +13,16 @@ export PG_VER PG_CLUSTER
 
 echo "[entrypoint] PostgreSQL ${PG_VER}, кластер: ${PG_CLUSTER}"
 
+# В docker-образе postinst создаёт кластер, но при некоторых сборках/кэшах
+# слой с данными может отсутствовать — инициализируем кластер при необходимости.
+if [ ! -d "/var/lib/postgresql/${PG_VER}/${PG_CLUSTER}" ]; then
+    echo "[entrypoint] каталог данных отсутствует, создаю кластер..."
+    pg_dropcluster --stop "${PG_VER}" main 2>/dev/null || true
+    # /run/postgresql может не существовать в контейнере (нет tmpfs от systemd)
+    mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+    pg_createcluster --start "${PG_VER}" "${PG_CLUSTER}"
+fi
+
 # стартуем временный postgres для инициализации
 pg_ctlcluster "${PG_VER}" "${PG_CLUSTER}" start
 

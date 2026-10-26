@@ -33,7 +33,10 @@ RUN cd backend \
     && cp -r generated/prisma node_modules/generated/prisma \
     # кладём рядом со скомпилированным кодом файл модели casbin —
     # он читается в рантайме из рабочей директории
-    && cp Casbin_role_model.conf dist/Casbin_role_model.conf
+    && cp Casbin_role_model.conf dist/Casbin_role_model.conf \
+    # prisma.service.js (dist/modules/prisma/) импортирует клиент как '../../../generated/prisma',
+    # что резолвится в backend/generated — кладём копию клиента по этому пути
+    && cp -r generated /build/backend/generated
 
 # ---------- Frontend (Vite/React) ----------
 COPY studio-frontend/package.json studio-frontend/package-lock.json ./frontend/
@@ -72,6 +75,9 @@ COPY --from=build /build/backend/node_modules/@prisma /app/backend/node_modules/
 COPY --from=build /build/backend/node_modules/generated /app/backend/node_modules/generated
 COPY --from=build /build/backend/dist /app/backend/dist
 COPY --from=build /build/backend/prisma /app/backend/prisma
+# prisma-клиент рядом с dist/ — так резолвятся импорты '../generated/prisma' (seed.cjs)
+# и '../../../generated/prisma' (dist/modules/prisma/prisma.service.js)
+COPY --from=build /build/backend/generated /app/backend/generated
 
 # фронтенд: собранная статика для nginx
 COPY --from=build /build/frontend/dist /app/frontend/dist
