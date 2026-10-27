@@ -31,7 +31,9 @@ export class StudioAuthGuard implements CanActivate {
       throw new UnauthorizedException('Недействительный токен');
     }
 
-    request.session = payload.session as SessionInfo;
+    // Не перезаписываем req.session (его создаёт express-session и у него
+    // есть методы вроде touch()) — кладём студийную сессию в отдельное поле.
+    request.studioSession = payload.session as SessionInfo;
     return true;
   }
 }

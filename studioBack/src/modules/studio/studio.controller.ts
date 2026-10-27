@@ -20,7 +20,7 @@ export class StudioController {
   constructor(private readonly studioService: StudioService) {}
 
   private session(req: Request): any {
-    return (req as any).session;
+    return (req as any).studioSession;
   }
 
   // === Публичные эндпоинты ===

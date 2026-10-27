@@ -22,11 +22,11 @@ const isStandalone =
 
 @Module({
   imports: [
-    AuthModule, 
-    UserModule, 
-    UserRoleModule, 
-    PrismaModule, 
-    CasbinModule,
+    // В standalone-режиме модули внешней OAuth-авторизации/RBAC не
+    // подключаются: OAuthStrategy падает без реального clientID, а
+    // casbin/user-role сервисы требуют внешнего auth-сервиса.
+    ...(isStandalone ? [] : [AuthModule, UserModule, UserRoleModule, CasbinModule]),
+    PrismaModule,
     StudioModule,
   ],
   controllers: [AppController],

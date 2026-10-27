@@ -11,7 +11,7 @@ import { SessionInfo } from './auth.guard';
 export class DepartmentGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const session: SessionInfo | undefined = request.session;
+    const session: SessionInfo | undefined = request.studioSession;
     if (!session) {
       throw new UnauthorizedException('Требуется авторизация');
     }
