@@ -14,13 +14,24 @@ import { PrismaClient } from 'generated/prisma';
     {
       provide: 'CASBIN_ENFORCER',
       useFactory: async () => {
-        const prisma = new PrismaClient();
-        const adapter = await PrismaAdapter.newAdapter(prisma);
-        const enforcer = await newEnforcer('Casbin_role_model.conf', adapter);
-        await enforcer.loadPolicy();
-        enforcer.enableAutoSave(true);
-        enforcer.enableLog(true);
-        return enforcer;
+        try {
+          const prisma = new PrismaClient();
+          const adapter = await PrismaAdapter.newAdapter(prisma);
+          const enforcer = await newEnforcer('Casbin_role_model.conf', adapter);
+          await enforcer.loadPolicy();
+          enforcer.enableAutoSave(true);
+          enforcer.enableLog(true);
+          return enforcer;
+        } catch (e) {
+          // В standalone-режиме внешняя RBAC не используется
+          // (доступ обеспечивает StudioAuthGuard). Не роняем приложение,
+          // если casbin-таблицы или конфиг недоступны.
+          console.warn(
+            'Casbin enforcer не инициализирован (standalone?):',
+            (e as Error)?.message,
+          );
+          return null;
+        }
       },
     },
     CasbinService,

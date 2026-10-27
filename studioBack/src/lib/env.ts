@@ -1,6 +1,27 @@
+// В standalone-режиме (вся платформа в одном контейнере, без внешней авторизации)
+// обязательные поля окружения не требуются — используются значения по умолчанию.
+const isStandalone = (): boolean =>
+  (process.env.STANDALONE || '').toLowerCase() !== 'false';
+
+// Значения по умолчанию для standalone-режима. clientID/clientSecret в
+// passport-oauth2 обязаны быть непустыми строками, иначе приложение падает
+// при инициализации стратегии (внешняя авторизация в контейнере не
+// используется — эти значения лишь заглушки).
+const STANDALONE_DEFAULTS: Record<string, string> = {
+  APP_ID: 'standalone',
+  APP_NAME: 'studio',
+  APP_KEY: 'standalone-local-secret-key-32chars!!!',
+  BASE_URL: 'http://localhost',
+  FRONT_URL: 'http://localhost',
+  AUTH_SERVICE_URL: 'http://localhost',
+  AUTH_SERVICE_BACK_URL: 'http://localhost',
+};
+
 const envPick = (key: string): string => {
-  if (!process.env[key])
+  if (!process.env[key]) {
+    if (isStandalone()) return STANDALONE_DEFAULTS[key] ?? '';
     throw new Error(`Не указано обязательное поле в .env: ${key}`);
+  }
 
   return process.env[key];
 };
