@@ -23,7 +23,7 @@ const Calendar: React.FC<CalendarProps> = ({
 
   const handleDateClick = (date: Date | null) => {
     if (!date) return;
-    const dow = date.getDay();
+    const dow = date.getDay() === 0 ? 7 : date.getDay();
     const isBlocked = config.blockedDays.includes(dow) && !isWeekend(date);
     if (date < today) return;
     onSelectDate(date, isBlocked);
@@ -43,7 +43,7 @@ const Calendar: React.FC<CalendarProps> = ({
         {WEEKDAYS_SHORT.map(d => <div key={d} className="cal-dow">{d}</div>)}
         {days.map((date, idx) => {
           if (!date) return <div key={idx} className="cal-day empty" />;
-          const dow = date.getDay();
+          const dow = date.getDay() === 0 ? 7 : date.getDay();
           const isWeekendDay = isWeekend(date);
           const isPast = date < today;
           const isBlocked = config.blockedDays.includes(dow) && !isWeekendDay;

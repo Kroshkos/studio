@@ -117,6 +117,13 @@ export class StudioController {
   }
 
   @UseGuards(StudioAuthGuard, AdminGuard)
+  @Delete('admin/bookings/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async adminDeleteBooking(@Param('id') id: string) {
+    await this.studioService.deleteBooking(id, { kind: "admin" });
+  }
+
+  @UseGuards(StudioAuthGuard, AdminGuard)
   @Delete('admin/bookings')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAllBookings() {

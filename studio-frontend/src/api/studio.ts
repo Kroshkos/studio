@@ -76,6 +76,8 @@ export const createBooking = (data: {
 
 export const deleteBooking = (id: string) => api.delete(`/bookings/${id}`);
 
+export const adminDeleteBooking = (id: string) => api.delete(`/admin/bookings/${id}`);
+
 export const setBookingStage = (id: string, stage: BookingStage) =>
   api.patch<Booking>(`/bookings/${id}/stage`, { stage }).then((r) => r.data);
 

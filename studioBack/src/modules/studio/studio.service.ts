@@ -374,7 +374,8 @@ export class StudioService {
     const bookings = await this.prisma.booking.findMany({ where: { date } });
     const occupiedSlots = bookings.map((b) => b.slot);
 
-    const dayOfWeek = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
+    const jsDay = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
+    const dayOfWeek = jsDay === 0 ? 7 : jsDay; // ISO: 1=Пн … 7=Вс
     const isBlocked = config.blockedDays.includes(dayOfWeek);
     let blockedMessage: string | null = null;
     if (isBlocked) {
