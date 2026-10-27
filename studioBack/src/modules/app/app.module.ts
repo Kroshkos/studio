@@ -11,7 +11,14 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthGuard } from '@/modules/auth/guards/auth.guard';
 import { ScopeGuard } from '@/modules/auth/guards/scope.guard';
 import { CasbinGuard } from '@/modules/auth/guards/casbin.guard';
+import { LocalSessionGuard } from '@/modules/auth/guards/local-session.guard';
 import { StudioModule } from '@/modules/studio/studio.module';
+
+// В standalone-режиме (вся платформа в одном контейнере, STANDALONE!=false)
+// внешняя OAuth-авторизация недоступна — вместо AuthGuard/Casbin/Scope
+// используется LocalSessionGuard (сессии студии ставит StudioAuthGuard).
+const isStandalone =
+  (process.env.STANDALONE || '').toLowerCase() !== 'false';
 
 @Module({
   imports: [
@@ -25,18 +32,13 @@ import { StudioModule } from '@/modules/studio/studio.module';
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: AuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: CasbinGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: ScopeGuard,
-    },
+    ...(isStandalone
+      ? [{ provide: APP_GUARD, useClass: LocalSessionGuard }]
+      : [
+          { provide: APP_GUARD, useClass: AuthGuard },
+          { provide: APP_GUARD, useClass: CasbinGuard },
+          { provide: APP_GUARD, useClass: ScopeGuard },
+        ]),
   ],
 })
 export class AppModule implements NestModule {

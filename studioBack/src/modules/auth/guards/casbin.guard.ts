@@ -32,6 +32,8 @@ export class CasbinGuard implements CanActivate {
     ]);
     if (skip) return true;
 
+    if (!this.enforcer) return true; // standalone: casbin недоступен
+
     const req = context.switchToHttp().getRequest<Request>();
 
     // `req.jwt` уже заполнен AuthGuard‑ом (если пользователь аутентифицирован)
