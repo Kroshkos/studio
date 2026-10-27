@@ -62,9 +62,25 @@ const createCRUDCasbinRule = async (
   }
 };
 
+
+async function ensureStudioConfig() {
+  const existing = await prisma.studioConfig.findUnique({ where: { id: 1 } });
+  if (!existing) {
+    await prisma.studioConfig.create({
+      data: {
+        id: 1,
+        blockedDays: [],
+        msgTeacher: 'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
+        msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
+      },
+    });
+  }
+}
+
 async function main() {
   await createCRUDCasbinRule('user', '/lk', ['GET']);
   await createCRUDCasbinRule('admin', '/*');
+  await ensureStudioConfig();
 
   console.log('База проинициализирована!');
 }

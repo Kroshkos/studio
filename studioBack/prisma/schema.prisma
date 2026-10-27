@@ -38,17 +38,40 @@ model CasbinRule {
   @@map("casbin_rule")
 }
 
+enum BookingStage {
+  AWAITING_RECORD // Ожидает записи (забронирована дата)
+  RECORDING       // Запись видео
+  PROCESSING      // Обработка видео
+  SENT            // Видео отправлено пользователю
+}
+
+model Department {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  passwordHash String
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  bookings     Booking[]
+}
+
 model Booking {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String
-  email     String?
-  purpose   String?
-  role      String   // "teacher" | "student"
-  date      String   // YYYY-MM-DD
-  slot      String   // "09:00"
-  dateLabel String?
-  createdAt DateTime @default(now())
+  id             String       @id @default(cuid())
+  departmentId   String
+  department     Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  phone          String
+  email          String
+  purpose        String?
+  role           String // "teacher" | "student"
+  date           String // YYYY-MM-DD
+  slot           String // "09:00"
+  dateLabel      String?
+  stage          BookingStage @default(AWAITING_RECORD)
+  stageUpdatedAt DateTime     @default(now())
+  stageHistory   Json         @default("[]")
+  createdAt      DateTime     @default(now())
+
+  @@index([departmentId])
+  @@index([date, slot])
 }
 
 model StudioConfig {

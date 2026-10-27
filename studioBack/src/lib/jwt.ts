@@ -63,12 +63,23 @@ export const getTokenPayload = (token: string) => {
   const key = getAppKey();
 
   try {
+    return Jwt.verify(token, key) as object;
+  } catch (e) {
+    console.log('Ошибка верификации токена:', e);
+    return null;
+  }
+};
+
+export const verifyJwtPayload = (token: string) => {
+  const key = getAppKey();
+
+  try {
     const payload = Jwt.verify(token, key);
     const parseResult = JWTPayload.safeParse(payload);
     if (parseResult.success) {
       return parseResult.data;
     }
-    throw new Error('Токен не соответствуент типу JWTPayload');
+    throw new Error('Токен не соответствует типу JWTPayload');
   } catch (e) {
     console.log('Ошибка верификации токена:', e);
     return null;
