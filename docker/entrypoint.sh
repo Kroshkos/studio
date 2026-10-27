@@ -71,5 +71,19 @@ fi
 # останавливаем временный postgres — его запустит supervisord
 pg_ctlcluster "${PG_VER}" "${PG_CLUSTER}" stop
 
+# 3) штатно завершает работу при SIGTERM/SIGINT (docker stop): шлём TERM всей
+#    группе процессов supervisord — тот остановит программы и выйдет, а мы
+#    подхватим код завершения. Без trap'а bash умирал бы от сигнала сразу,
+#    postgres убивался SIGKILL посреди работы, и на следующем старте backend
+#    ловил ECONNREFUSED: NestJS печатал ошибку в bootstrap().catch(...) и
+#    завершался с кодом 0 -> "exited: backend (exit status 0)" -> FATAL.
 echo "[entrypoint] инициализация завершена, запускаю ${*}"
-exec "$@"
+sup_pid=""
+term_all() { [ -n "${sup_pid}" ] && kill -TERM -"${sup_pid}" 2>/dev/null; }
+trap term_all TERM INT
+setsid "$@" &
+sup_pid=$!
+wait "${sup_pid}"
+rc=$?
+trap - TERM INT
+exit "${rc}"
