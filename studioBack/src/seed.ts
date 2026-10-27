@@ -1,4 +1,5 @@
 import { PrismaClient } from '../generated/prisma';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -77,10 +78,35 @@ async function ensureStudioConfig() {
   }
 }
 
+async function ensureAdminDepartment() {
+  // Подразделение «admin»: используется для входа по ADMIN_LOGIN/ADMIN_PASSWORD
+  // (см. studio.controller.ts: логин, совпадающий с ADMIN_LOGIN, идёт в validateAdmin,
+  // остальные — в loginDepartment, который ищет запись в таблице Department).
+  // Идемпотентно: если существует — обновляем хэш пароля из текущих переменных окружения.
+  const password = process.env.ADMIN_PASSWORD || 'studio2024';
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const existing = await prisma.department.findUnique({ where: { name: 'admin' } });
+  if (existing) {
+    if (!existing.isActive || existing.passwordHash !== passwordHash) {
+      await prisma.department.update({
+        where: { id: existing.id },
+        data: { passwordHash, isActive: true },
+      });
+    }
+    return;
+  }
+
+  await prisma.department.create({
+    data: { name: 'admin', passwordHash, isActive: true },
+  });
+}
+
 async function main() {
   await createCRUDCasbinRule('user', '/lk', ['GET']);
   await createCRUDCasbinRule('admin', '/*');
   await ensureStudioConfig();
+  await ensureAdminDepartment();
 
   console.log('База проинициализирована!');
 }

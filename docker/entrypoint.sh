@@ -61,9 +61,11 @@ else
 fi
 
 # сид-данные (скрипт идемпотентен)
+# ВАЖНО: seed.cjs лежит в dist/ (см. Dockerfile: cp dist-seed/seed.js dist/seed.cjs),
+# раньше здесь было `node seed.cjs` из /app/backend — MODULE_NOT_FOUND и пустая база.
 if [ "${RUN_SEED:-true}" = "true" ]; then
     echo "[entrypoint] посев начальных данных"
-    node seed.cjs || echo "[entrypoint] WARNING: seed завершился с ошибкой"
+    node dist/seed.cjs || echo "[entrypoint] WARNING: seed завершился с ошибкой"
 fi
 
 # останавливаем временный postgres — его запустит supervisord
