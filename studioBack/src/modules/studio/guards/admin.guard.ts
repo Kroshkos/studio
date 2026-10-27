@@ -1,19 +1,19 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { getTokenPayload } from '@/lib/jwt';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { SessionInfo } from './auth.guard';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
-    if (!authHeader) throw new UnauthorizedException('Токен не предоставлен');
-
-    const token = authHeader.split(' ')[1];
-    const payload = getTokenPayload(token);
-    if (!payload) throw new UnauthorizedException('Недействительный токен');
-
-    // можно дополнительно проверить наличие поля admin: true
-    request.admin = payload;
+    const session: SessionInfo | undefined = request.session;
+    if (!session || session.kind !== 'admin') {
+      throw new UnauthorizedException('Требуются права администратора');
+    }
     return true;
   }
 }

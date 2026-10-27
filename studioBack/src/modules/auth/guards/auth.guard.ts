@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import axios from 'axios';
-import { getJWTHeaders, getTokenPayload } from '@/lib/jwt';
+import { getJWTHeaders, verifyJwtPayload as getTokenPayload } from '@/lib/jwt';
 import jwksClient from 'jwks-rsa';
 import { JwtHeader, SigningKeyCallback, verify } from 'jsonwebtoken';
 import { z } from '@/lib/zod';
