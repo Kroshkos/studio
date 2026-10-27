@@ -58,12 +58,15 @@ FROM node:20-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# hostname обязателен: self-loop guard, вставляемый в entrypoint ниже,
+# вызывает `hostname -f`; без пакета команда падает и entrypoint ломается.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         postgresql \
         nginx \
         supervisor \
         openssl \
         ca-certificates \
+        hostname \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # --- приложение ---
@@ -122,8 +125,8 @@ if [ -n "${DB_HOST:-}" ] && [ "${DB_HOST}" = "$(hostname -f 2>/dev/null || hostn
     echo "[entrypoint] DB_HOST совпадает с hostname пода (self-loop) — использую встроенный postgres"
     export DB_HOST=127.0.0.1
 fi
-URL_HOST=$(node -e 'try{console.log(new URL(process.env.DATABASE_URL).hostname)}catch(e){console.log("")}')
-if [ "${URL_HOST}" = "$(hostname -f 2>/dev/null || hostname)" ]; then
+URL_HOST=$(node -e 'try{const u=new URL(process.env.DATABASE_URL);console.log(u.hostname)}catch(e){console.log("")}' || true)
+if [ -n "${URL_HOST}" ] && { [ "${URL_HOST}" = "$(hostname -f 2>/dev/null || hostname)" ] || [ "${URL_HOST}" = "$(hostname)" ]; }; then
     echo "[entrypoint] DATABASE_URL указывает на сам под (self-loop) — переписываю хост на 127.0.0.1"
     DATABASE_URL=$(node -e 'const u=new URL(process.env.DATABASE_URL);u.hostname="127.0.0.1";console.log(u.toString())')
     export DATABASE_URL
