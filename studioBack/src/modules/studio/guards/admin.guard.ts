@@ -10,7 +10,7 @@ import { SessionInfo } from './auth.guard';
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const session: SessionInfo | undefined = request.session;
+    const session: SessionInfo | undefined = request.studioSession;
     if (!session || session.kind !== 'admin') {
       throw new UnauthorizedException('Требуются права администратора');
     }

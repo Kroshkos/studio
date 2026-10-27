@@ -31,7 +31,7 @@ export class LocalSessionGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<Request>();
 
     // студийная сессия (kind: admin | department), ставится StudioAuthGuard
-    if ((req as any).session?.kind) return true;
+    if ((req as any).studioSession?.kind) return true;
 
     // express-session создаёт объект req.session для каждого запроса,
     // поэтому при выходе считаем авторизованным только студийную сессию
@@ -42,7 +42,7 @@ export class LocalSessionGuard implements CanActivate {
       try {
         const payload = getTokenPayload(token) as { session?: SessionInfo } | null;
         if (payload?.session?.kind) {
-          (req as any).session = payload.session;
+          (req as any).studioSession = payload.session;
           return true;
         }
       } catch {
