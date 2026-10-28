@@ -33,6 +33,12 @@ interface StageChange {
   by: string;
 }
 
+// ISO-нумерация дней недели: 1=Пн … 7=Вс
+function isoDayOfWeek(date: string): number {
+  const jsDay = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
+  return jsDay === 0 ? 7 : jsDay;
+}
+
 @Injectable()
 export class StudioService {
   constructor(private prisma: PrismaService) {}
@@ -379,11 +385,18 @@ export class StudioService {
     const bookings = await this.prisma.booking.findMany({ where: { date } });
     const occupiedSlots = bookings.map((b) => b.slot);
 
-    const jsDay = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
-    const dayOfWeek = jsDay === 0 ? 7 : jsDay; // ISO: 1=Пн … 7=Вс
+    const dayOfWeek = isoDayOfWeek(date);
     const isBlocked = config.blockedDays.includes(dayOfWeek);
+
+    // Блокировки по конкретному промежутку дат и аудитории
+    const blocks = (config.dayBlocks || []).filter((b) => b.dateFrom <= date && date <= b.dateTo);
+    const blockAudiences = new Set(blocks.map((b) => b.audience));
+    const blockedForRole = blockAudiences.has('all') || blockAudiences.has(role);
+
     let blockedMessage: string | null = null;
-    if (isBlocked) {
+    if (blockedForRole) {
+      blockedMessage = role === 'teacher' ? config.msgTeacher : config.msgStudent;
+    } else if (isBlocked) {
       blockedMessage = role === 'teacher' ? config.msgTeacher : config.msgStudent;
     }
 
@@ -393,11 +406,19 @@ export class StudioService {
       booked: occupiedSlots.includes(slot),
     }));
 
-    return { date, blocked: isBlocked, blockedMessage, slots: slotsWithStatus };
+    return {
+      date,
+      blocked: isBlocked || blockedForRole,
+      blockedMessage,
+      slots: slotsWithStatus,
+    };
   }
 
   async getConfig() {
-    let config = await this.prisma.studioConfig.findUnique({ where: { id: 1 } });
+    let config = await this.prisma.studioConfig.findUnique({
+      where: { id: 1 },
+      include: { dayBlocks: { orderBy: [{ dateFrom: 'asc' }, { dateTo: 'asc' }] } },
+    });
     if (!config) {
       config = await this.prisma.studioConfig.create({
         data: {
@@ -407,12 +428,32 @@ export class StudioService {
           msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
         },
       });
+      config = { ...config, dayBlocks: [] };
     }
     return config;
   }
 
   async updateConfig(dto: UpdateConfigDto) {
-    return this.prisma.studioConfig.update({
+    if (dto.dayBlocks !== undefined) {
+      for (const b of dto.dayBlocks) {
+        if (b.dateFrom > b.dateTo) {
+          throw new BadRequestException('Дата окончания блокировки раньше даты начала');
+        }
+      }
+      await this.prisma.dayBlock.deleteMany({ where: { configId: 1 } });
+      if (dto.dayBlocks.length) {
+        await this.prisma.dayBlock.createMany({
+          data: dto.dayBlocks.map((b) => ({
+            configId: 1,
+            audience: b.audience,
+            dateFrom: b.dateFrom,
+            dateTo: b.dateTo,
+          })),
+        });
+      }
+    }
+
+    await this.prisma.studioConfig.update({
       where: { id: 1 },
       data: {
         blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
@@ -420,6 +461,8 @@ export class StudioService {
         msgStudent: dto.msgStudent,
       },
     });
+
+    return this.getConfig();
   }
 
   // --- Отчёт ---

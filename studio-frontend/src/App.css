@@ -1151,3 +1151,61 @@ textarea {
   font-family: inherit;
   resize: vertical;
 }
+
+/* Блокировки студии: выбор аудитории и промежутка (админ) */
+.cal-day.partially-blocked {
+  background: rgba(240, 165, 0, 0.12);
+  border-color: rgba(240, 165, 0, 0.35);
+}
+
+.block-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.block-form select,
+.block-form input[type="date"] {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-family: inherit;
+}
+
+.block-form .date-sep { color: #9fb0c8; }
+
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.block-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .03);
+  font-size: 14px;
+}
+
+.badge-audience {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.aud-teacher { background: rgba(60, 130, 246, .2); color: #9cc2ff; }
+.aud-student { background: rgba(46, 180, 120, .2); color: #8fe3bd; }
+.aud-all { background: rgba(200, 50, 50, .25); color: #ffb3b3; }
+
+.hint { color: #7d8ea6; font-size: 13px; margin-top: 8px; }

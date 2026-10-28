@@ -64,6 +64,7 @@ function AdminArea({ onLogout }: { onLogout: () => void }) {
     blockedDays: [],
     msgTeacher: '',
     msgStudent: '',
+    dayBlocks: [],
   });
 
   useEffect(() => {
@@ -111,6 +112,7 @@ function DepartmentPortal({
     blockedDays: [],
     msgTeacher: '',
     msgStudent: '',
+    dayBlocks: [],
   });
 
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
@@ -250,6 +252,7 @@ function DepartmentPortal({
                 year={year}
                 month={month}
                 config={config}
+                role={role}
                 bookings={myBookings}
                 selectedDate={selectedDate}
                 onSelectDate={handleSelectDate}

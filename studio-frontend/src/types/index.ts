@@ -61,10 +61,33 @@ export interface SlotsResponse {
   slots: Slot[];
 }
 
+export type BlockAudience = 'teacher' | 'student' | 'all';
+
+export interface DayBlock {
+  id?: number;
+  audience: BlockAudience;
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string;   // YYYY-MM-DD
+}
+
+export const AUDIENCE_RU: Record<BlockAudience, string> = {
+  teacher: 'Преподаватель',
+  student: 'Студент',
+  all: 'Для всех',
+};
+
+// Проверка: заблокирован ли день для указанной роли по списку блокировок
+export function isDateBlockedFor(dateKeyStr: string, role: 'teacher' | 'student', blocks: DayBlock[]): boolean {
+  return blocks.some(
+    (b) => b.dateFrom <= dateKeyStr && dateKeyStr <= b.dateTo && (b.audience === 'all' || b.audience === role),
+  );
+}
+
 export interface StudioConfig {
   blockedDays: number[]; // 1=Пн ... 5=Пт
   msgTeacher: string;
   msgStudent: string;
+  dayBlocks?: DayBlock[];
 }
 
 export type SessionKind = 'admin' | 'department';
