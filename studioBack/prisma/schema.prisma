@@ -75,9 +75,23 @@ model Booking {
 }
 
 model StudioConfig {
-  id          Int     @id @default(1)       // всегда одна запись
-  blockedDays Int[]                         // массив дней недели (1=Пн … 5=Пт)
-  msgTeacher  String
-  msgStudent  String
-  updatedAt   DateTime @updatedAt
+  id           Int      @id @default(1) // всегда одна запись
+  blockedDays  Int[]                     // массив дней недели (1=Пн … 5=Пт) — устарело, см. dayBlocks
+  msgTeacher   String
+  msgStudent   String
+  dayBlocks    DayBlock[]
+  updatedAt    DateTime @updatedAt
+}
+
+// Блокировка студии: для кого (преподаватель / студент / все) и на какой промежуток
+model DayBlock {
+  id        Int      @id @default(autoincrement())
+  configId  Int
+  config    StudioConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  audience  String   // "teacher" | "student" | "all"
+  dateFrom  String   // YYYY-MM-DD
+  dateTo    String   // YYYY-MM-DD
+  createdAt DateTime @default(now())
+
+  @@index([configId])
 }

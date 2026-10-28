@@ -22,6 +22,9 @@ import {
   STAGES,
   STAGE_RU,
   StudioConfig,
+  BlockAudience,
+  DayBlock,
+  AUDIENCE_RU,
 } from '../types';
 import Modal from './Modal';
 
@@ -614,17 +617,53 @@ function DepartmentFormModal({ title, initialName = '', initialActive = true, ed
 /* ---------------- Настройки ---------------- */
 const DAY_NAMES: Record<number, string> = { 1: 'Пн', 2: 'Вт', 3: 'Ср', 4: 'Чт', 5: 'Пт' };
 
+const AUDIENCE_OPTIONS: { value: BlockAudience; label: string }[] = [
+  { value: 'teacher', label: 'Преподаватель' },
+  { value: 'student', label: 'Студент' },
+  { value: 'all', label: 'Для всех' },
+];
+
+function todayStr(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function fmtRu(dateStr: string): string {
+  if (!dateStr) return '—';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ru-RU');
+}
+
 function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: StudioConfig) => Promise<void>; }) {
   const [blockedDays, setBlockedDays] = useState<number[]>(config.blockedDays);
   const [msgTeacher, setMsgTeacher] = useState(config.msgTeacher);
   const [msgStudent, setMsgStudent] = useState(config.msgStudent);
+  const [dayBlocks, setDayBlocks] = useState<DayBlock[]>(config.dayBlocks || []);
+  // форма добавления блокировки: для кого + промежуток
+  const [audience, setAudience] = useState<BlockAudience>('all');
+  const [dateFrom, setDateFrom] = useState(todayStr());
+  const [dateTo, setDateTo] = useState(todayStr());
+  const [blockErr, setBlockErr] = useState('');
   const [saved, setSaved] = useState(false);
 
   const toggleDay = (d: number) =>
     setBlockedDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
 
+  const addBlock = () => {
+    setBlockErr('');
+    if (!dateFrom || !dateTo) return setBlockErr('Укажите начало и конец промежутка блокировки');
+    if (dateFrom > dateTo) return setBlockErr('Дата окончания раньше даты начала');
+    const clash = dayBlocks.find((b) => b.audience === audience && b.dateFrom <= dateTo && dateFrom <= b.dateTo);
+    if (clash) return setBlockErr(`Уже есть блокировка (${AUDIENCE_RU[audience]}): ${fmtRu(clash.dateFrom)} — ${fmtRu(clash.dateTo)}`);
+    setDayBlocks((prev) =>
+      [...prev, { audience, dateFrom, dateTo }].sort((a, b) => a.dateFrom.localeCompare(b.dateFrom)),
+    );
+  };
+
+  const removeBlock = (idx: number) => setDayBlocks((prev) => prev.filter((_, i) => i !== idx));
+
   const save = async () => {
-    await onSave({ blockedDays, msgTeacher, msgStudent });
+    await onSave({ blockedDays, msgTeacher, msgStudent, dayBlocks });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -646,6 +685,36 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
           ))}
         </div>
       </div>
+
+      <div className="form-group">
+        <label>Блокировки на конкретный промежуток времени</label>
+        <div className="block-form">
+          <select value={audience} onChange={(e) => setAudience(e.target.value as BlockAudience)}>
+            {AUDIENCE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>Кого блокировать: {o.label}</option>
+            ))}
+          </select>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="Начало блокировки" />
+          <span className="date-sep">по</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="Окончание блокировки" />
+          <button type="button" className="btn-submit btn-sm" onClick={addBlock}>+ Заблокировать</button>
+        </div>
+        {blockErr && <div className="status-msg show error">{blockErr}</div>}
+        {dayBlocks.length > 0 ? (
+          <div className="block-list">
+            {dayBlocks.map((b, i) => (
+              <div key={`${b.audience}-${b.dateFrom}-${b.dateTo}`} className="block-item">
+                <span className={`badge-audience aud-${b.audience}`}>{AUDIENCE_RU[b.audience]}</span>
+                <span>{fmtRu(b.dateFrom)} — {fmtRu(b.dateTo)}</span>
+                <button type="button" className="btn-danger btn-sm" onClick={() => removeBlock(i)}>Снять</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="hint">Дополнительных блокировок нет</div>
+        )}
+      </div>
+
       <div className="form-group">
         <label>Сообщение преподавателю при блокировке дня</label>
         <textarea rows={3} value={msgTeacher} onChange={(e) => setMsgTeacher(e.target.value)} />
