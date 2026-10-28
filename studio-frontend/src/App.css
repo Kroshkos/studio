@@ -205,7 +205,7 @@
     margin-bottom: 8px;
   }
 
-  input[type="text"], input[type="email"], input[type="tel"], select, textarea {
+  input[type="text"], input[type="email"], input[type="tel"], input[type="password"], select, textarea {
     width: 100%;
     background: rgba(0,20,40,0.8);
     border: 1px solid var(--border);
