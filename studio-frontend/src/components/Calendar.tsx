@@ -22,13 +22,17 @@ const Calendar: React.FC<CalendarProps> = ({
   today.setHours(0, 0, 0, 0);
   const days = getMonthDays(year, month);
 
-  const dayBlockInfo = (date: Date): { blocked: boolean; audience?: BlockAudience } => {
+  const dayBlockInfo = (date: Date): { blocked: boolean; audience?: BlockAudience; partial?: boolean } => {
     const dow = date.getDay() === 0 ? 7 : date.getDay();
     if (config.blockedDays.includes(dow) && !isWeekend(date)) return { blocked: true };
     const key = dateKey(date);
     const block = (config.dayBlocks || []).find((b) => b.dateFrom <= key && key <= b.dateTo);
     if (block) {
-      if (block.audience === 'all' || block.audience === role) return { blocked: true, audience: block.audience };
+      if (block.audience === 'all' || block.audience === role) {
+        // блокировка только на часть дня — день остаётся кликабельным, слоты скроет бэкенд
+        if (block.timeFrom && block.timeTo) return { blocked: false, audience: block.audience, partial: true };
+        return { blocked: true, audience: block.audience };
+      }
       return { blocked: false, audience: block.audience };
     }
     return { blocked: false };
@@ -56,7 +60,7 @@ const Calendar: React.FC<CalendarProps> = ({
           if (!date) return <div key={idx} className="cal-day empty" />;
           const isWeekendDay = isWeekend(date);
           const isPast = date < today;
-          const { blocked: isBlocked, audience } = dayBlockInfo(date);
+          const { blocked: isBlocked, audience, partial } = dayBlockInfo(date);
           const classes = ['cal-day'];
           if (isWeekendDay) classes.push('weekend');
           if (isPast) classes.push('past');
@@ -65,9 +69,11 @@ const Calendar: React.FC<CalendarProps> = ({
           if (hasBookings(date)) classes.push('has-bookings');
           if (dateKey(date) === dateKey(today)) classes.push('today');
           if (isSelected(date)) classes.push('selected');
-          const title = audience && !isBlocked
-            ? `Частичная блокировка: недоступно для «${AUDIENCE_RU[audience]}»`
-            : undefined;
+          const title = partial
+            ? 'Студия закрыта часть дня — недоступные слоты будут скрыты'
+            : audience && !isBlocked
+              ? `Частичная блокировка: недоступно для «${AUDIENCE_RU[audience]}»`
+              : undefined;
           return (
             <div
               key={idx}

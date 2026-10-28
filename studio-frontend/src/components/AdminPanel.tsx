@@ -25,6 +25,7 @@ import {
   BlockAudience,
   DayBlock,
   AUDIENCE_RU,
+  TimeOverride,
 } from '../types';
 import Modal from './Modal';
 
@@ -52,6 +53,63 @@ const emptyFilters: BookingFilters = {
   dateTo: '',
   sort: 'date_asc',
 };
+
+// --- helpers для графика работы ---
+const toMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+const toHHmm = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
+
+interface BaseSlot { original: string; time: string; endTime: string; duration: number }
+
+// Генерация базовых слотов по графику (без учёта overrides) — как на бэкенде
+function genBaseSlots(open: string, close: string, step: number): BaseSlot[] {
+  const res: BaseSlot[] = [];
+  for (let t = toMin(open); t + step <= toMin(close); t += step) {
+    res.push({ original: toHHmm(t), time: toHHmm(t), endTime: toHHmm(t + step), duration: step });
+  }
+  return res;
+}
+
+function applyOverrides(base: BaseSlot[], overrides: TimeOverride[]): BaseSlot[] {
+  const map = new Map(overrides.map((o) => [o.original, o]));
+  return base
+    .filter((s) => !map.get(s.original)?.deleted)
+    .map((s) => {
+      const ov = map.get(s.original);
+      if (!ov) return s;
+      const time = ov.newTime ?? s.time;
+      const duration = ov.duration ?? s.duration;
+      return { ...s, time, duration, endTime: toHHmm(toMin(time) + duration) };
+    })
+    .sort((a, b) => a.time.localeCompare(b.time));
+}
+
+// Валидация графика на клиенте (зеркалит бэкенд)
+function validateSchedule(open: string, close: string, step: number, overrides: TimeOverride[]): string {
+  if (!open || !close) return 'Укажите время открытия и закрытия';
+  if (toMin(open) >= toMin(close)) return 'Время закрытия должно быть позже времени открытия';
+  const base = genBaseSlots(open, close, step);
+  const originals = new Set(base.map((s) => s.original));
+  for (const o of overrides) {
+    if (!originals.has(o.original)) return `Слот ${o.original} не существует при выбранном графике`;
+    if (o.deleted) continue;
+    const time = o.newTime ?? o.original;
+    const dur = o.duration ?? step;
+    if (toMin(time) < toMin(open) || toMin(time) + dur > toMin(close)) {
+      return `Слот ${time}${dur !== step ? ` (${dur} мин)` : ''} выходит за границы графика работы`;
+    }
+  }
+  const effective = applyOverrides(base, overrides).map((s) => ({ from: toMin(s.time), to: toMin(s.time) + s.duration, label: s.time }));
+  effective.sort((a, b) => a.from - b.from);
+  for (let i = 1; i < effective.length; i++) {
+    if (effective[i].from < effective[i - 1].to) return `Слоты пересекаются: ${effective[i - 1].label} и ${effective[i].label}`;
+  }
+  return '';
+}
 
 export default function AdminPanel({ config, onConfigUpdate, onClose }: Props) {
   const [section, setSection] = useState<Section>('dashboard');
@@ -639,12 +697,31 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
   const [msgTeacher, setMsgTeacher] = useState(config.msgTeacher);
   const [msgStudent, setMsgStudent] = useState(config.msgStudent);
   const [dayBlocks, setDayBlocks] = useState<DayBlock[]>(config.dayBlocks || []);
-  // форма добавления блокировки: для кого + промежуток
+  // форма добавления блокировки: для кого + промежуток (даты и, опционально, время)
   const [audience, setAudience] = useState<BlockAudience>('all');
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
+  const [withTime, setWithTime] = useState(false);
+  const [timeFrom, setTimeFrom] = useState('09:00');
+  const [timeTo, setTimeTo] = useState('12:00');
   const [blockErr, setBlockErr] = useState('');
   const [saved, setSaved] = useState(false);
+
+  // график работы и индивидуальные слоты (источник — конфиг с сервера)
+  const openTime = config.openTime || '09:00';
+  const closeTime = config.closeTime || '17:00';
+  const slotDuration = config.slotDuration || 60;
+  const [overrides, setOverrides] = useState<Record<string, TimeOverride>>(
+    () => Object.fromEntries((config.timeOverrides || []).map((o) => [o.original, o])),
+  );
+  useEffect(() => {
+    setOverrides(Object.fromEntries((config.timeOverrides || []).map((o) => [o.original, o])));
+  }, [config.timeOverrides]);
+  const [schedErr, setSchedErr] = useState('');
+
+  const overrideList: TimeOverride[] = Object.values(overrides);
+  const baseSlots = genBaseSlots(openTime, closeTime, slotDuration);
+  const previewSlots = applyOverrides(baseSlots, overrideList);
 
   const toggleDay = (d: number) =>
     setBlockedDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
@@ -653,17 +730,78 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
     setBlockErr('');
     if (!dateFrom || !dateTo) return setBlockErr('Укажите начало и конец промежутка блокировки');
     if (dateFrom > dateTo) return setBlockErr('Дата окончания раньше даты начала');
-    const clash = dayBlocks.find((b) => b.audience === audience && b.dateFrom <= dateTo && dateFrom <= b.dateTo);
+    let tf: string | null = null;
+    let tt: string | null = null;
+    if (withTime) {
+      if (!timeFrom || !timeTo) return setBlockErr('Укажите время начала и окончания блокировки');
+      if (dateFrom === dateTo && timeFrom >= timeTo) return setBlockErr('Время окончания должно быть позже времени начала');
+      tf = timeFrom;
+      tt = timeTo;
+    }
+    const clash = dayBlocks.find(
+      (b) => b.audience === audience && b.dateFrom <= dateTo && dateFrom <= b.dateTo && b.timeFrom === (tf ?? '') && b.timeTo === (tt ?? ''),
+    );
     if (clash) return setBlockErr(`Уже есть блокировка (${AUDIENCE_RU[audience]}): ${fmtRu(clash.dateFrom)} — ${fmtRu(clash.dateTo)}`);
     setDayBlocks((prev) =>
-      [...prev, { audience, dateFrom, dateTo }].sort((a, b) => a.dateFrom.localeCompare(b.dateFrom)),
+      [...prev, { audience, dateFrom, dateTo, timeFrom: tf, timeTo: tt }].sort((a, b) => a.dateFrom.localeCompare(b.dateFrom)),
     );
   };
 
   const removeBlock = (idx: number) => setDayBlocks((prev) => prev.filter((_, i) => i !== idx));
 
+  const blockLabel = (b: DayBlock) =>
+    `${fmtRu(b.dateFrom)} — ${fmtRu(b.dateTo)}${b.timeFrom && b.timeTo ? `, ${b.timeFrom}–${b.timeTo}` : ', весь день'}`;
+
+  const setOverride = (original: string, patch: Partial<TimeOverride> | null) => {
+    setOverrides((prev) => {
+      const next = { ...prev };
+      if (patch === null) {
+        delete next[original];
+        return next;
+      }
+      const cur: TimeOverride = next[original] ?? { original };
+      next[original] = { ...cur, ...patch };
+      return next;
+    });
+  };
+
+  const changeScheduleField = (field: 'open' | 'close' | 'step', value: string | number) => {
+    const nextOpen = field === 'open' ? String(value) : openTime;
+    const nextClose = field === 'close' ? String(value) : closeTime;
+    const nextStep = field === 'step' ? Number(value) : slotDuration;
+    // при изменении графика отбрасываем изменения слотов, которых больше не существует
+    const validOriginals = new Set(genBaseSlots(nextOpen, nextClose, nextStep).map((s) => s.original));
+    const keptOverrides = Object.values(overrides).filter((o) => validOriginals.has(o.original));
+    setOverrides(Object.fromEntries(keptOverrides.map((o) => [o.original, o])));
+    onSave({
+      blockedDays,
+      msgTeacher,
+      msgStudent,
+      dayBlocks,
+      openTime: nextOpen,
+      closeTime: nextClose,
+      slotDuration: nextStep,
+      timeOverrides: keptOverrides,
+    }).catch(() => {});
+  };
+
   const save = async () => {
-    await onSave({ blockedDays, msgTeacher, msgStudent, dayBlocks });
+    const err = validateSchedule(openTime, closeTime, slotDuration, overrideList);
+    if (err) {
+      setSchedErr(err);
+      return;
+    }
+    setSchedErr('');
+    await onSave({
+      blockedDays,
+      msgTeacher,
+      msgStudent,
+      dayBlocks,
+      openTime,
+      closeTime,
+      slotDuration,
+      timeOverrides: overrideList,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -697,15 +835,28 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="Начало блокировки" />
           <span className="date-sep">по</span>
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="Окончание блокировки" />
+        </div>
+        <div className="block-form">
+          <label className="checkbox-row">
+            <input type="checkbox" checked={withTime} onChange={(e) => setWithTime(e.target.checked)} />
+            Блокировать не на весь день, а только на промежуток времени
+          </label>
+          {withTime && (
+            <>
+              <input type="time" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} step={300} title="С какого часа" />
+              <span className="date-sep">—</span>
+              <input type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} step={300} title="До какого часа" />
+            </>
+          )}
           <button type="button" className="btn-submit btn-sm" onClick={addBlock}>+ Заблокировать</button>
         </div>
         {blockErr && <div className="status-msg show error">{blockErr}</div>}
         {dayBlocks.length > 0 ? (
           <div className="block-list">
             {dayBlocks.map((b, i) => (
-              <div key={`${b.audience}-${b.dateFrom}-${b.dateTo}`} className="block-item">
+              <div key={`${b.audience}-${b.dateFrom}-${b.dateTo}-${b.timeFrom ?? ''}`} className="block-item">
                 <span className={`badge-audience aud-${b.audience}`}>{AUDIENCE_RU[b.audience]}</span>
-                <span>{fmtRu(b.dateFrom)} — {fmtRu(b.dateTo)}</span>
+                <span>{blockLabel(b)}</span>
                 <button type="button" className="btn-danger btn-sm" onClick={() => removeBlock(i)}>Снять</button>
               </div>
             ))}
@@ -713,6 +864,83 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
         ) : (
           <div className="hint">Дополнительных блокировок нет</div>
         )}
+      </div>
+
+      <div className="form-group">
+        <label>График работы и слоты для записи</label>
+        <div className="schedule-form">
+          <label className="sched-field">
+            Открытие
+            <input type="time" value={openTime} onChange={(e) => changeScheduleField('open', e.target.value)} step={300} />
+          </label>
+          <label className="sched-field">
+            Закрытие
+            <input type="time" value={closeTime} onChange={(e) => changeScheduleField('close', e.target.value)} step={300} />
+          </label>
+          <label className="sched-field">
+            Длительность слота
+            <select value={slotDuration} onChange={(e) => changeScheduleField('step', Number(e.target.value))}>
+              {DURATION_OPTIONS.map((d) => (
+                <option key={d} value={d}>{d} мин</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="hint">Слоты формируются автоматически по графику. Здесь можно перенести время слота, изменить его длительность или удалить конкретный слот.</div>
+        {!baseSlots.length && <div className="status-msg show error">При таком графике слотов не получается — увеличьте рабочее время или уменьшите длительность слота</div>}
+        {!!baseSlots.length && (
+          <div className="slot-edit-list">
+            {baseSlots.map((s) => {
+              const ov = overrides[s.original];
+              const deleted = !!ov?.deleted;
+              const time = ov?.newTime ?? s.original;
+              const dur = ov?.duration ?? slotDuration;
+              const preview = previewSlots.find((p) => p.original === s.original);
+              return (
+                <div key={s.original} className={`slot-edit-row ${deleted ? 'deleted' : ''}`}>
+                  <span className="ser-orig">{s.original}</span>
+                  <label className="sched-field">
+                    Время
+                    <input
+                      type="time"
+                      value={time}
+                      disabled={deleted}
+                      step={300}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === s.original && dur === slotDuration) setOverride(s.original, null);
+                        else setOverride(s.original, { newTime: v });
+                      }}
+                    />
+                  </label>
+                  <label className="sched-field">
+                    Длительность
+                    <select
+                      value={dur}
+                      disabled={deleted}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (v === slotDuration && time === s.original) setOverride(s.original, null);
+                        else setOverride(s.original, { duration: v });
+                      }}
+                    >
+                      {DURATION_OPTIONS.map((d) => (
+                        <option key={d} value={d}>{d} мин</option>
+                      ))}
+                    </select>
+                  </label>
+                  {preview && !deleted && <span className="ser-preview">{preview.time}–{preview.endTime}</span>}
+                  {deleted ? (
+                    <button type="button" className="btn-secondary btn-sm" onClick={() => setOverride(s.original, null)}>Вернуть</button>
+                  ) : (
+                    <button type="button" className="btn-danger btn-sm" onClick={() => setOverride(s.original, { deleted: true })}>Удалить слот</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {schedErr && <div className="status-msg show error">{schedErr}</div>}
       </div>
 
       <div className="form-group">

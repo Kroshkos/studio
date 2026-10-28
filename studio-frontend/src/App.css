@@ -1209,3 +1209,84 @@ textarea {
 .aud-all { background: rgba(200, 50, 50, .25); color: #ffb3b3; }
 
 .hint { color: #7d8ea6; font-size: 13px; margin-top: 8px; }
+
+/* График работы и редактирование слотов (админ) */
+.block-form input[type="time"] {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-family: inherit;
+}
+
+.schedule-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.sched-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #9fb0c8;
+}
+
+.sched-field input[type="time"],
+.sched-field select {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+}
+
+.slot-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.slot-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .03);
+  font-size: 14px;
+}
+
+.slot-edit-row .ser-orig {
+  font-weight: 700;
+  min-width: 46px;
+}
+
+.slot-edit-row .ser-preview {
+  color: #8fe3bd;
+  font-size: 13px;
+}
+
+.slot-edit-row.deleted {
+  opacity: .5;
+}
+
+.slot-edit-row.deleted .ser-orig {
+  text-decoration: line-through;
+}
+
+.time-slot.blocked-slot {
+  opacity: .35;
+  pointer-events: none;
+}

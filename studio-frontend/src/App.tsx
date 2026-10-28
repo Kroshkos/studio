@@ -65,6 +65,10 @@ function AdminArea({ onLogout }: { onLogout: () => void }) {
     msgTeacher: '',
     msgStudent: '',
     dayBlocks: [],
+    openTime: '09:00',
+    closeTime: '17:00',
+    slotDuration: 60,
+    timeOverrides: [],
   });
 
   useEffect(() => {
@@ -113,6 +117,10 @@ function DepartmentPortal({
     msgTeacher: '',
     msgStudent: '',
     dayBlocks: [],
+    openTime: '09:00',
+    closeTime: '17:00',
+    slotDuration: 60,
+    timeOverrides: [],
   });
 
   const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
@@ -242,7 +250,9 @@ function DepartmentPortal({
             <div className="card">
               <div className="card-title"><span className="icon">📅</span> Выбор даты</div>
               <div className="info-box">
-                <strong>Режим работы студии:</strong> Понедельник–Пятница, 9:00–17:00<br />
+                <strong>Режим работы студии:</strong>{' '}
+                {`${(config.openTime || '09:00')}–${(config.closeTime || '17:00')}`}<br />
+                <strong>Длительность слота по умолчанию:</strong> {config.slotDuration || 60} мин<br />
                 <strong>Поддержка:</strong>{' '}
                 <a href="mailto:liot_public@mail.ru" style={{ color: 'var(--accent-light)' }}>
                   liot_public@mail.ru

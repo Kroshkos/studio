@@ -8,6 +8,7 @@ import {
   SlotsResponse,
   StudioConfig,
   BookingStage,
+  TimeOverride,
 } from '../types';
 
 const api = axios.create({
@@ -112,8 +113,28 @@ export const updateDepartment = (
 export const deleteDepartment = (id: string) =>
   api.delete(`/admin/departments/${id}`);
 
-export const updateConfig = (config: Partial<StudioConfig>) =>
-  api.put<StudioConfig>('/admin/config', config).then((r) => r.data);
+export const updateConfig = (config: Partial<StudioConfig>) => {
+  const payload: Record<string, unknown> = { ...config };
+  // приводим schedule к виду бэкенда: { openTime, closeTime, slotDuration, overrides }
+  if (config.openTime !== undefined || config.closeTime !== undefined || config.slotDuration !== undefined || config.timeOverrides !== undefined) {
+    payload.schedule = {
+      openTime: config.openTime ?? '09:00',
+      closeTime: config.closeTime ?? '17:00',
+      slotDuration: config.slotDuration ?? 60,
+      overrides: (config.timeOverrides ?? []).map((o: TimeOverride) => ({
+        original: o.original,
+        ...(o.newTime ? { newTime: o.newTime } : {}),
+        ...(o.duration ? { duration: o.duration } : {}),
+        ...(o.deleted ? { deleted: true } : {}),
+      })),
+    };
+  }
+  delete payload.openTime;
+  delete payload.closeTime;
+  delete payload.slotDuration;
+  delete payload.timeOverrides;
+  return api.put<StudioConfig>('/admin/config', payload).then((r) => r.data);
+};
 
 export const downloadReport = async (): Promise<Blob> => {
   const response = await api.get('/admin/report', { responseType: 'blob' });
