@@ -41,7 +41,7 @@ export class StudioService {
   validateAdmin(login: string, password: string): boolean {
     const adminLogin = process.env.ADMIN_LOGIN || 'admin';
     const adminPass = process.env.ADMIN_PASSWORD || 'studio2024';
-    return login === adminLogin && password === adminPass;
+    return login.toLowerCase() === adminLogin.toLowerCase() && password === adminPass;
   }
 
   adminToken(login: string) {
@@ -52,7 +52,12 @@ export class StudioService {
   }
 
   async loginDepartment(name: string, password: string) {
-    const dept = await this.prisma.department.findUnique({ where: { name } });
+    // Логин нечувствителен к регистру: ищем подразделение без учёта регистра
+    const dept =
+      (await this.prisma.department.findUnique({ where: { name } })) ??
+      (await this.prisma.department.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' } },
+      }));
     if (!dept || !dept.isActive) {
       throw new UnauthorizedException('Неверное подразделение или пароль');
     }

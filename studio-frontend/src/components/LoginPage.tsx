@@ -49,7 +49,7 @@ export default function LoginPage({ onSuccess }: Props) {
               autoComplete="username"
               placeholder="Например: Кафедра анатомии"
               value={loginName}
-              onChange={(e) => setLoginName(e.target.value)}
+              onChange={(e) => setLoginName(e.target.value.toLowerCase())}
             />
           </div>
           <div className="form-group">
