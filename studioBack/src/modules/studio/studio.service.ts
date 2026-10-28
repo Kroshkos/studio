@@ -33,6 +33,24 @@ interface StageChange {
   by: string;
 }
 
+// Студийный конфиг с блокировками по промежуткам дат (результат getConfig)
+type StudioConfigWithBlocks = {
+  dayBlocks: {
+    id: number;
+    configId: number;
+    audience: string;
+    dateFrom: string;
+    dateTo: string;
+    createdAt: Date;
+  }[];
+} & {
+  id: number;
+  blockedDays: number[];
+  msgTeacher: string;
+  msgStudent: string;
+  updatedAt: Date;
+};
+
 // ISO-нумерация дней недели: 1=Пн … 7=Вс
 function isoDayOfWeek(date: string): number {
   const jsDay = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
@@ -414,23 +432,22 @@ export class StudioService {
     };
   }
 
-  async getConfig() {
-    let config = await this.prisma.studioConfig.findUnique({
+  async getConfig(): Promise<StudioConfigWithBlocks> {
+    const config = await this.prisma.studioConfig.findUnique({
       where: { id: 1 },
       include: { dayBlocks: { orderBy: [{ dateFrom: 'asc' }, { dateTo: 'asc' }] } },
     });
-    if (!config) {
-      config = await this.prisma.studioConfig.create({
-        data: {
-          id: 1,
-          blockedDays: [],
-          msgTeacher: 'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
-          msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
-        },
-      });
-      config = { ...config, dayBlocks: [] };
-    }
-    return config;
+    if (config) return config;
+
+    const created = await this.prisma.studioConfig.create({
+      data: {
+        id: 1,
+        blockedDays: [],
+        msgTeacher: 'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
+        msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
+      },
+    });
+    return { ...created, dayBlocks: [] };
   }
 
   async updateConfig(dto: UpdateConfigDto) {
