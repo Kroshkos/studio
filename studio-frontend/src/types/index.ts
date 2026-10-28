@@ -50,14 +50,25 @@ export interface Booking {
 }
 
 export interface Slot {
-  slot: string;
+  slot: string;        // отображаемое время начала (может быть перенесённым)
+  original: string;    // исходное время слота из генератора
+  endTime: string;     // время окончания
+  duration: number;    // длительность в минутах
   booked: boolean;
+  blocked?: boolean;   // слот перекрыт временной блокировкой
+}
+
+export interface ScheduleInfo {
+  openTime: string;
+  closeTime: string;
+  slotDuration: number;
 }
 
 export interface SlotsResponse {
   date: string;
   blocked: boolean;
   blockedMessage: string | null;
+  schedule?: ScheduleInfo;
   slots: Slot[];
 }
 
@@ -68,6 +79,8 @@ export interface DayBlock {
   audience: BlockAudience;
   dateFrom: string; // YYYY-MM-DD
   dateTo: string;   // YYYY-MM-DD
+  timeFrom?: string | null; // HH:mm — необязательно, иначе блокировка на весь день
+  timeTo?: string | null;   // HH:mm
 }
 
 export const AUDIENCE_RU: Record<BlockAudience, string> = {
@@ -83,11 +96,27 @@ export function isDateBlockedFor(dateKeyStr: string, role: 'teacher' | 'student'
   );
 }
 
+// Индивидуальное изменение конкретного слота (перенос времени / длительность / удаление)
+export interface TimeOverride {
+  original: string;  // исходное время слота "HH:mm"
+  newTime?: string | null;
+  duration?: number | null;
+  deleted?: boolean;
+}
+
+export interface ScheduleConfig extends ScheduleInfo {
+  overrides: TimeOverride[];
+}
+
 export interface StudioConfig {
   blockedDays: number[]; // 1=Пн ... 5=Пт
   msgTeacher: string;
   msgStudent: string;
   dayBlocks?: DayBlock[];
+  openTime?: string;
+  closeTime?: string;
+  slotDuration?: number;
+  timeOverrides?: TimeOverride[];
 }
 
 export type SessionKind = 'admin' | 'department';

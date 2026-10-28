@@ -13,20 +13,30 @@ const TimeSlots: React.FC<TimeSlotsProps> = ({ slots, selectedSlot, blocked, blo
   if (blocked) {
     return (
       <div className="notice" style={{ display: 'block' }}>
-        {blockedMessage}
+        {blockedMessage || 'В этот день студия закрыта.'}
+      </div>
+    );
+  }
+
+  const visible = slots.filter((s) => !s.blocked);
+  if (!visible.length) {
+    return (
+      <div className="notice" style={{ display: 'block' }}>
+        {blockedMessage || 'На выбранный день нет доступного времени.'}
       </div>
     );
   }
 
   return (
     <div className="slots-container">
-      {slots.map(s => (
+      {visible.map(s => (
         <div
           key={s.slot}
           className={`time-slot ${s.booked ? 'booked' : ''} ${selectedSlot === s.slot ? 'selected' : ''}`}
+          title={s.duration && s.duration !== 60 ? `Длительность: ${s.duration} мин` : undefined}
           onClick={() => !s.booked && onSelectSlot(s.slot)}
         >
-          {s.slot}
+          {s.slot}{s.endTime ? `–${s.endTime}` : ''}
         </div>
       ))}
     </div>

@@ -41,6 +41,17 @@ type StudioConfigWithBlocks = {
     audience: string;
     dateFrom: string;
     dateTo: string;
+    timeFrom: string | null;
+    timeTo: string | null;
+    createdAt: Date;
+  }[];
+  timeOverrides: {
+    id: number;
+    configId: number;
+    original: string;
+    newTime: string | null;
+    duration: number | null;
+    deleted: boolean;
     createdAt: Date;
   }[];
 } & {
@@ -48,6 +59,9 @@ type StudioConfigWithBlocks = {
   blockedDays: number[];
   msgTeacher: string;
   msgStudent: string;
+  openTime: string;
+  closeTime: string;
+  slotDuration: number;
   updatedAt: Date;
 };
 
@@ -55,6 +69,17 @@ type StudioConfigWithBlocks = {
 function isoDayOfWeek(date: string): number {
   const jsDay = new Date(date + 'T00:00:00').getDay(); // 0=вс … 6=сб
   return jsDay === 0 ? 7 : jsDay;
+}
+
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function toHHmm(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 @Injectable()
@@ -398,6 +423,49 @@ export class StudioService {
   }
 
   // --- Слоты / конфиг ---
+  // Генерация слотов по графику работы + индивидуальные изменения (перенос/длительность/удаление)
+  private generateSlots(config: StudioConfigWithBlocks): {
+    original: string;
+    time: string;
+    endTime: string;
+    duration: number;
+    deleted: boolean;
+  }[] {
+    const open = toMinutes(config.openTime || '09:00');
+    const close = toMinutes(config.closeTime || '17:00');
+    const step = config.slotDuration || 60;
+
+    const base: { original: string; time: string; endTime: string; duration: number; deleted: boolean }[] = [];
+    for (let t = open; t + step <= close; t += step) {
+      base.push({
+        original: toHHmm(t),
+        time: toHHmm(t),
+        endTime: toHHmm(t + step),
+        duration: step,
+        deleted: false,
+      });
+    }
+
+    // Применяем индивидуальные изменения к «базовым» слотам
+    for (const ov of config.timeOverrides || []) {
+      const slot = base.find((s) => s.original === ov.original);
+      if (!slot) continue;
+      if (ov.deleted) {
+        slot.deleted = true;
+        continue;
+      }
+      if (ov.newTime) slot.time = ov.newTime;
+      if (ov.duration) {
+        slot.duration = ov.duration;
+        slot.endTime = toHHmm(toMinutes(slot.time) + ov.duration);
+      } else if (ov.newTime) {
+        slot.endTime = toHHmm(toMinutes(ov.newTime) + slot.duration);
+      }
+    }
+
+    return base.filter((s) => !s.deleted).sort((a, b) => a.time.localeCompare(b.time));
+  }
+
   async getSlotsForDate(date: string, role: 'teacher' | 'student') {
     const config = await this.getConfig();
     const bookings = await this.prisma.booking.findMany({ where: { date } });
@@ -418,16 +486,39 @@ export class StudioService {
       blockedMessage = role === 'teacher' ? config.msgTeacher : config.msgStudent;
     }
 
-    const slots = Array.from({ length: 8 }, (_, i) => `${9 + i}:00`.padStart(5, '0'));
-    const slotsWithStatus = slots.map((slot) => ({
-      slot,
-      booked: occupiedSlots.includes(slot),
-    }));
+    // Частичные блокировки по времени для текущей роли (внутри рабочих часов)
+    const timeIntervals = blocks
+      .filter((b) => (b.audience === 'all' || b.audience === role) && b.timeFrom && b.timeTo)
+      .map((b) => ({ from: toMinutes(b.timeFrom as string), to: toMinutes(b.timeTo as string) }));
+
+    const slots = this.generateSlots(config);
+    const slotsWithStatus = slots.map((s) => {
+      const start = toMinutes(s.time);
+      const end = toMinutes(s.endTime);
+      const blockedByTime = timeIntervals.some((iv) => start < iv.to && end > iv.from);
+      return {
+        slot: s.time,
+        original: s.original,
+        endTime: s.endTime,
+        duration: s.duration,
+        booked: occupiedSlots.includes(s.time),
+        blocked: blockedByTime,
+      };
+    });
+
+    // Если все доступные слоты дня перекрыты временной блокировкой — считаем день заблокированным
+    const allTimeBlocked =
+      !isBlocked && !blockedForRole && slotsWithStatus.length > 0 && slotsWithStatus.every((s) => s.blocked);
 
     return {
       date,
-      blocked: isBlocked || blockedForRole,
+      blocked: isBlocked || blockedForRole || allTimeBlocked,
       blockedMessage,
+      schedule: {
+        openTime: config.openTime,
+        closeTime: config.closeTime,
+        slotDuration: config.slotDuration,
+      },
       slots: slotsWithStatus,
     };
   }
@@ -435,7 +526,10 @@ export class StudioService {
   async getConfig(): Promise<StudioConfigWithBlocks> {
     const config = await this.prisma.studioConfig.findUnique({
       where: { id: 1 },
-      include: { dayBlocks: { orderBy: [{ dateFrom: 'asc' }, { dateTo: 'asc' }] } },
+      include: {
+        dayBlocks: { orderBy: [{ dateFrom: 'asc' }, { dateTo: 'asc' }] },
+        timeOverrides: { orderBy: { original: 'asc' } },
+      },
     });
     if (config) return config;
 
@@ -447,7 +541,7 @@ export class StudioService {
         msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
       },
     });
-    return { ...created, dayBlocks: [] };
+    return { ...created, dayBlocks: [], timeOverrides: [] };
   }
 
   async updateConfig(dto: UpdateConfigDto) {
@@ -455,6 +549,9 @@ export class StudioService {
       for (const b of dto.dayBlocks) {
         if (b.dateFrom > b.dateTo) {
           throw new BadRequestException('Дата окончания блокировки раньше даты начала');
+        }
+        if (b.dateFrom === b.dateTo && b.timeFrom && b.timeTo && b.timeFrom >= b.timeTo) {
+          throw new BadRequestException('Время окончания блокировки должно быть позже времени начала');
         }
       }
       await this.prisma.dayBlock.deleteMany({ where: { configId: 1 } });
@@ -465,19 +562,101 @@ export class StudioService {
             audience: b.audience,
             dateFrom: b.dateFrom,
             dateTo: b.dateTo,
+            timeFrom: b.timeFrom || null,
+            timeTo: b.timeTo || null,
           })),
         });
       }
     }
 
-    await this.prisma.studioConfig.update({
-      where: { id: 1 },
-      data: {
-        blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
-        msgTeacher: dto.msgTeacher,
-        msgStudent: dto.msgStudent,
-      },
-    });
+    if (dto.schedule !== undefined) {
+      const { openTime, closeTime, slotDuration, overrides } = dto.schedule;
+      if (toMinutes(openTime) >= toMinutes(closeTime)) {
+        throw new BadRequestException('Время закрытия должно быть позже времени открытия');
+      }
+
+      // Проверки индивидуальных изменений слотов
+      const gen = this.generateSlots({
+        ...(await this.getConfig()),
+        openTime,
+        closeTime,
+        slotDuration,
+        timeOverrides: [],
+      });
+      const originals = new Set(gen.map((s) => s.original));
+      const list = overrides || [];
+      const seenOrig = new Set<string>();
+      for (const ov of list) {
+        if (!originals.has(ov.original)) {
+          throw new BadRequestException(`Слот ${ov.original} не существует при выбранном графике`);
+        }
+        if (seenOrig.has(ov.original)) {
+          throw new BadRequestException(`Дублирующееся изменение слота ${ov.original}`);
+        }
+        seenOrig.add(ov.original);
+        if (ov.deleted) continue;
+        const time = ov.newTime ?? ov.original;
+        const dur = ov.duration ?? slotDuration;
+        if (toMinutes(time) < toMinutes(openTime) || toMinutes(time) + dur > toMinutes(closeTime)) {
+          throw new BadRequestException(
+            `Слот ${time}${dur !== slotDuration ? ` (${dur} мин)` : ''} выходит за границы графика работы`,
+          );
+        }
+      }
+      // Пересечения изменённых слотов между собой
+      const effective = list
+        .filter((o) => !o.deleted)
+        .map((o) => ({
+          from: toMinutes(o.newTime ?? o.original),
+          to: toMinutes(o.newTime ?? o.original) + (o.duration ?? slotDuration),
+          label: o.newTime ?? o.original,
+        }));
+      // и незатронутые базовые слоты
+      const changedOriginals = new Set(list.map((o) => o.original));
+      for (const s of gen) {
+        if (!changedOriginals.has(s.original)) {
+          effective.push({ from: toMinutes(s.time), to: toMinutes(s.time) + s.duration, label: s.time });
+        }
+      }
+      effective.sort((a, b) => a.from - b.from);
+      for (let i = 1; i < effective.length; i++) {
+        if (effective[i].from < effective[i - 1].to) {
+          throw new BadRequestException(
+            `Слоты пересекаются: ${effective[i - 1].label} и ${effective[i].label}`,
+          );
+        }
+      }
+
+      await this.prisma.timeOverride.deleteMany({ where: { configId: 1 } });
+      if (list.length) {
+        await this.prisma.timeOverride.createMany({
+          data: list.map((o) => ({
+            configId: 1,
+            original: o.original,
+            newTime: o.newTime ?? null,
+            duration: o.duration ?? null,
+            deleted: o.deleted ?? false,
+          })),
+        });
+      }
+
+      await this.prisma.studioConfig.update({
+        where: { id: 1 },
+        data: { openTime, closeTime, slotDuration },
+      });
+    }
+
+    // Если прислан только schedule или только dayBlocks — не затираем сообщения пустыми значениями
+    const hasMsgs = dto.msgTeacher !== undefined || dto.msgStudent !== undefined;
+    if (dto.blockedDays !== undefined || hasMsgs) {
+      await this.prisma.studioConfig.update({
+        where: { id: 1 },
+        data: {
+          blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
+          ...(hasMsgs ? { msgTeacher: dto.msgTeacher, msgStudent: dto.msgStudent } : {}),
+        },
+      });
+    }
 
     return this.getConfig();
   }

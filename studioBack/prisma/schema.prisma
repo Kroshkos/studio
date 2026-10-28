@@ -75,15 +75,20 @@ model Booking {
 }
 
 model StudioConfig {
-  id           Int      @id @default(1) // всегда одна запись
-  blockedDays  Int[]                     // массив дней недели (1=Пн … 5=Пт) — устарело, см. dayBlocks
-  msgTeacher   String
-  msgStudent   String
-  dayBlocks    DayBlock[]
-  updatedAt    DateTime @updatedAt
+  id            Int       @id @default(1) // всегда одна запись
+  blockedDays   Int[]                      // массив дней недели (1=Пн … 5=Пт) — устарело, см. dayBlocks
+  msgTeacher    String
+  msgStudent    String
+  openTime      String    @default("09:00") // начало графика работы
+  closeTime     String    @default("17:00") // конец графика работы
+  slotDuration  Int       @default(60)      // длительность слота по умолчанию, мин
+  dayBlocks     DayBlock[]
+  timeOverrides TimeOverride[]
+  updatedAt     DateTime  @updatedAt
 }
 
 // Блокировка студии: для кого (преподаватель / студент / все) и на какой промежуток
+// (даты + время; если timeFrom/timeTo пустые — блокировка на весь день)
 model DayBlock {
   id        Int      @id @default(autoincrement())
   configId  Int
@@ -91,7 +96,24 @@ model DayBlock {
   audience  String   // "teacher" | "student" | "all"
   dateFrom  String   // YYYY-MM-DD
   dateTo    String   // YYYY-MM-DD
+  timeFrom  String?  // HH:mm (необязательно — с этого времени)
+  timeTo    String?  // HH:mm (необязательно — до этого времени)
   createdAt DateTime @default(now())
 
+  @@index([configId])
+}
+
+// Индивидуальные изменения конкретных слотов: перенос времени, изменение длительности, удаление
+model TimeOverride {
+  id         Int      @id @default(autoincrement())
+  configId   Int
+  config     StudioConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  original   String   // исходное время слота из генератора, "HH:mm"
+  newTime    String?  // новое время слота (если изменено), "HH:mm"
+  duration   Int?     // индивидуальная длительность в минутах (если изменена)
+  deleted    Boolean  @default(false) // слот удалён
+  createdAt  DateTime @default(now())
+
+  @@unique([configId, original])
   @@index([configId])
 }
