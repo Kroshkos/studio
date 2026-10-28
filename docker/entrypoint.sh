@@ -239,7 +239,7 @@ else
     # падал ("table public.UserRole does not exist"): таблицы студии от старого
     # direct_apply_schema_sql уже были, а User/UserRole/casbin_rule/Department — нет.
     # Теперь сверяется ВЕСЬ набор таблиц схемы (8 шт., см. prisma/schema.prisma).
-    MISSING=$(missing_count "$ALL_TABLES")
+    MISSING=$(missing_count "$ALL_TABLES" || echo 999)
     if [ "${MISSING}" != "0" ]; then
         echo "[entrypoint] схема неполная или чужая (код ${MISSING}) — применяю полную схему"
         if ! apply_full_schema_sql; then
