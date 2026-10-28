@@ -8,6 +8,8 @@ import {
   deleteDepartment,
   downloadReport,
   getDashboard,
+  getConfig,
+  getSlots,
   listDepartments,
   setBookingStage,
   updateConfig,
@@ -140,6 +142,9 @@ export default function AdminPanel({ config, onConfigUpdate, onClose }: Props) {
 
   useEffect(() => {
     if (section === 'bookings') refreshBookings();
+    // при открытии настроек всегда подтягиваем актуальный конфиг с сервера,
+    // чтобы локальное состояние не разошлось с БД (иначе сохранение может затереть данные)
+    if (section === 'settings') getConfig().then(onConfigUpdate).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section]);
 
@@ -555,11 +560,26 @@ function MoveBookingModal({ booking, onClose, onMoved }: {
   const [slots, setSlots] = useState<string[]>([]);
   const [err, setErr] = useState('');
 
+  // список доступных слотов берём с сервера — он учитывает график работы,
+  // индивидуальные изменения слотов и блокировки (кроме текущего слота занятой записи)
   useEffect(() => {
-    const list: string[] = [];
-    for (let h = 9; h < 17; h++) list.push(`${String(h).padStart(2, '0')}:00`);
-    setSlots(list);
-  }, []);
+    if (!date) return;
+    let ignore = false;
+    getSlots(date, booking.role)
+      .then((data) => {
+        if (ignore) return;
+        const available = data.slots
+          .filter((s) => !s.blocked && (!s.booked || s.slot === booking.slot))
+          .map((s) => s.slot);
+        setSlots(available.length ? available : [booking.slot]);
+        if (!available.includes(slot)) setSlot(available[0] ?? booking.slot);
+      })
+      .catch(() => {
+        if (!ignore) setSlots([booking.slot]);
+      });
+    return () => { ignore = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const doMove = async () => {
     try {
@@ -697,6 +717,13 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
   const [msgTeacher, setMsgTeacher] = useState(config.msgTeacher);
   const [msgStudent, setMsgStudent] = useState(config.msgStudent);
   const [dayBlocks, setDayBlocks] = useState<DayBlock[]>(config.dayBlocks || []);
+  // синхронизируем локальное состояние с конфигом с сервера (например, после сохранения или загрузки)
+  useEffect(() => {
+    setBlockedDays(config.blockedDays);
+    setMsgTeacher(config.msgTeacher);
+    setMsgStudent(config.msgStudent);
+    setDayBlocks(config.dayBlocks || []);
+  }, [config]);
   // форма добавления блокировки: для кого + промежуток (даты и, опционально, время)
   const [audience, setAudience] = useState<BlockAudience>('all');
   const [dateFrom, setDateFrom] = useState(todayStr());
@@ -728,26 +755,66 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
 
   const addBlock = () => {
     setBlockErr('');
-    if (!dateFrom || !dateTo) return setBlockErr('Укажите начало и конец промежутка блокировки');
-    if (dateFrom > dateTo) return setBlockErr('Дата окончания раньше даты начала');
+    if (!dateFrom || !dateTo) {
+      setBlockErr('Укажите начало и конец промежутка блокировки');
+      return null;
+    }
+    if (dateFrom > dateTo) {
+      setBlockErr('Дата окончания раньше даты начала');
+      return null;
+    }
     let tf: string | null = null;
     let tt: string | null = null;
     if (withTime) {
-      if (!timeFrom || !timeTo) return setBlockErr('Укажите время начала и окончания блокировки');
-      if (dateFrom === dateTo && timeFrom >= timeTo) return setBlockErr('Время окончания должно быть позже времени начала');
+      if (!timeFrom || !timeTo) {
+        setBlockErr('Укажите время начала и окончания блокировки');
+        return null;
+      }
+      if (dateFrom === dateTo && timeFrom >= timeTo) {
+        setBlockErr('Время окончания должно быть позже времени начала');
+        return null;
+      }
       tf = timeFrom;
       tt = timeTo;
     }
     const clash = dayBlocks.find(
-      (b) => b.audience === audience && b.dateFrom <= dateTo && dateFrom <= b.dateTo && b.timeFrom === (tf ?? '') && b.timeTo === (tt ?? ''),
+      (b) => b.audience === audience && b.dateFrom <= dateTo && dateFrom <= b.dateTo && (b.timeFrom ?? '') === (tf ?? '') && (b.timeTo ?? '') === (tt ?? ''),
     );
-    if (clash) return setBlockErr(`Уже есть блокировка (${AUDIENCE_RU[audience]}): ${fmtRu(clash.dateFrom)} — ${fmtRu(clash.dateTo)}`);
-    setDayBlocks((prev) =>
-      [...prev, { audience, dateFrom, dateTo, timeFrom: tf, timeTo: tt }].sort((a, b) => a.dateFrom.localeCompare(b.dateFrom)),
-    );
+    if (clash) {
+      setBlockErr(`Уже есть блокировка (${AUDIENCE_RU[audience]}): ${fmtRu(clash.dateFrom)} — ${fmtRu(clash.dateTo)}`);
+      return null;
+    }
+    const next = [
+      ...dayBlocks,
+      { audience, dateFrom, dateTo, timeFrom: tf, timeTo: tt },
+    ].sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
+    setDayBlocks(next);
+    return next;
   };
 
-  const removeBlock = (idx: number) => setDayBlocks((prev) => prev.filter((_, i) => i !== idx));
+  // добавить/снять блокировку и СРАЗУ сохранить на сервер — иначе после обновления страницы блокировка «пропадает»
+  const addAndSave = async () => {
+    const next = addBlock();
+    if (!next) return;
+    await saveList(next);
+  };
+
+  const removeAndSave = async (idx: number) => {
+    const next = dayBlocks.filter((_, i) => i !== idx);
+    setDayBlocks(next);
+    await saveList(next);
+  };
+
+  const saveList = async (next: DayBlock[]) => {
+    try {
+      await onSave({ ...buildPayload(), dayBlocks: next });
+      setBlockErr('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setBlockErr(msg(e));
+    }
+  };
 
   const blockLabel = (b: DayBlock) =>
     `${fmtRu(b.dateFrom)} — ${fmtRu(b.dateTo)}${b.timeFrom && b.timeTo ? `, ${b.timeFrom}–${b.timeTo}` : ', весь день'}`;
@@ -765,6 +832,24 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
     });
   };
 
+  // не передаём msgTeacher/msgStudent, если поля ещё не заполнены (например, конфиг не загрузился) —
+  // иначе сервер сохранит пустые строки поверх реальных сообщений
+  const buildPayload = (): StudioConfig => {
+    const payload: StudioConfig = {
+      blockedDays,
+      msgTeacher: '',
+      msgStudent: '',
+      dayBlocks,
+      openTime,
+      closeTime,
+      slotDuration,
+      timeOverrides: overrideList,
+    };
+    if (msgTeacher.trim()) payload.msgTeacher = msgTeacher;
+    if (msgStudent.trim()) payload.msgStudent = msgStudent;
+    return payload;
+  };
+
   const changeScheduleField = (field: 'open' | 'close' | 'step', value: string | number) => {
     const nextOpen = field === 'open' ? String(value) : openTime;
     const nextClose = field === 'close' ? String(value) : closeTime;
@@ -774,10 +859,7 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
     const keptOverrides = Object.values(overrides).filter((o) => validOriginals.has(o.original));
     setOverrides(Object.fromEntries(keptOverrides.map((o) => [o.original, o])));
     onSave({
-      blockedDays,
-      msgTeacher,
-      msgStudent,
-      dayBlocks,
+      ...buildPayload(),
       openTime: nextOpen,
       closeTime: nextClose,
       slotDuration: nextStep,
@@ -792,16 +874,7 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
       return;
     }
     setSchedErr('');
-    await onSave({
-      blockedDays,
-      msgTeacher,
-      msgStudent,
-      dayBlocks,
-      openTime,
-      closeTime,
-      slotDuration,
-      timeOverrides: overrideList,
-    });
+    await onSave(buildPayload());
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -848,7 +921,7 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
               <input type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} step={300} title="До какого часа" />
             </>
           )}
-          <button type="button" className="btn-submit btn-sm" onClick={addBlock}>+ Заблокировать</button>
+          <button type="button" className="btn-submit btn-sm" onClick={addAndSave}>+ Заблокировать</button>
         </div>
         {blockErr && <div className="status-msg show error">{blockErr}</div>}
         {dayBlocks.length > 0 ? (
@@ -857,7 +930,7 @@ function SettingsView({ config, onSave }: { config: StudioConfig; onSave: (c: St
               <div key={`${b.audience}-${b.dateFrom}-${b.dateTo}-${b.timeFrom ?? ''}`} className="block-item">
                 <span className={`badge-audience aud-${b.audience}`}>{AUDIENCE_RU[b.audience]}</span>
                 <span>{blockLabel(b)}</span>
-                <button type="button" className="btn-danger btn-sm" onClick={() => removeBlock(i)}>Снять</button>
+                <button type="button" className="btn-danger btn-sm" onClick={() => removeAndSave(i)}>Снять</button>
               </div>
             ))}
           </div>

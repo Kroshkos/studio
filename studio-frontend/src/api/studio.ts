@@ -114,7 +114,12 @@ export const deleteDepartment = (id: string) =>
   api.delete(`/admin/departments/${id}`);
 
 export const updateConfig = (config: Partial<StudioConfig>) => {
-  const payload: Record<string, unknown> = { ...config };
+  const payload: Record<string, unknown> = {};
+  if (config.blockedDays !== undefined) payload.blockedDays = config.blockedDays;
+  // пустые сообщения не отправляем — сервер может ещё не иметь реальных значений, а затирать их нельзя
+  if (config.msgTeacher !== undefined && config.msgTeacher !== '') payload.msgTeacher = config.msgTeacher;
+  if (config.msgStudent !== undefined && config.msgStudent !== '') payload.msgStudent = config.msgStudent;
+  if (config.dayBlocks !== undefined) payload.dayBlocks = config.dayBlocks;
   // приводим schedule к виду бэкенда: { openTime, closeTime, slotDuration, overrides }
   if (config.openTime !== undefined || config.closeTime !== undefined || config.slotDuration !== undefined || config.timeOverrides !== undefined) {
     payload.schedule = {
@@ -129,10 +134,6 @@ export const updateConfig = (config: Partial<StudioConfig>) => {
       })),
     };
   }
-  delete payload.openTime;
-  delete payload.closeTime;
-  delete payload.slotDuration;
-  delete payload.timeOverrides;
   return api.put<StudioConfig>('/admin/config', payload).then((r) => r.data);
 };
 

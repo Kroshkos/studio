@@ -646,14 +646,17 @@ export class StudioService {
       });
     }
 
-    await this.prisma.studioConfig.update({
-      where: { id: 1 },
-      data: {
-        blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
-        msgTeacher: dto.msgTeacher,
-        msgStudent: dto.msgStudent,
-      },
-    });
+    // Если прислан только schedule или только dayBlocks — не затираем сообщения пустыми значениями
+    const hasMsgs = dto.msgTeacher !== undefined || dto.msgStudent !== undefined;
+    if (dto.blockedDays !== undefined || hasMsgs) {
+      await this.prisma.studioConfig.update({
+        where: { id: 1 },
+        data: {
+          blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
+          ...(hasMsgs ? { msgTeacher: dto.msgTeacher, msgStudent: dto.msgStudent } : {}),
+        },
+      });
+    }
 
     return this.getConfig();
   }
