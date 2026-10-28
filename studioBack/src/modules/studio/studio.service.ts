@@ -554,19 +554,6 @@ export class StudioService {
           throw new BadRequestException('Время окончания блокировки должно быть позже времени начала');
         }
       }
-      await this.prisma.dayBlock.deleteMany({ where: { configId: 1 } });
-      if (dto.dayBlocks.length) {
-        await this.prisma.dayBlock.createMany({
-          data: dto.dayBlocks.map((b) => ({
-            configId: 1,
-            audience: b.audience,
-            dateFrom: b.dateFrom,
-            dateTo: b.dateTo,
-            timeFrom: b.timeFrom || null,
-            timeTo: b.timeTo || null,
-          })),
-        });
-      }
     }
 
     if (dto.schedule !== undefined) {
@@ -626,37 +613,73 @@ export class StudioService {
           );
         }
       }
+    }
 
-      await this.prisma.timeOverride.deleteMany({ where: { configId: 1 } });
-      if (list.length) {
-        await this.prisma.timeOverride.createMany({
-          data: list.map((o) => ({
-            configId: 1,
-            original: o.original,
-            newTime: o.newTime ?? null,
-            duration: o.duration ?? null,
-            deleted: o.deleted ?? false,
-          })),
+    // Все проверки пройдены — сохраняем изменения одной транзакцией,
+    // чтобы при ошибке ничего не было частично затёрто (блокировки «пропадали» после обновления страницы)
+    await this.prisma.$transaction(async (tx) => {
+      // убедимся, что конфигурация существует
+      const existing = await tx.studioConfig.findUnique({ where: { id: 1 } });
+      if (!existing) {
+        await tx.studioConfig.create({
+          data: {
+            id: 1,
+            blockedDays: [],
+            msgTeacher: 'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
+            msgStudent: 'В этот день студия работает только для преподавателей. Студенты не могут записаться.',
+          },
         });
       }
 
-      await this.prisma.studioConfig.update({
-        where: { id: 1 },
-        data: { openTime, closeTime, slotDuration },
-      });
-    }
+      if (dto.dayBlocks !== undefined) {
+        await tx.dayBlock.deleteMany({ where: { configId: 1 } });
+        if (dto.dayBlocks.length) {
+          await tx.dayBlock.createMany({
+            data: dto.dayBlocks.map((b) => ({
+              configId: 1,
+              audience: b.audience,
+              dateFrom: b.dateFrom,
+              dateTo: b.dateTo,
+              timeFrom: b.timeFrom || null,
+              timeTo: b.timeTo || null,
+            })),
+          });
+        }
+      }
 
-    // Если прислан только schedule или только dayBlocks — не затираем сообщения пустыми значениями
-    const hasMsgs = dto.msgTeacher !== undefined || dto.msgStudent !== undefined;
-    if (dto.blockedDays !== undefined || hasMsgs) {
-      await this.prisma.studioConfig.update({
-        where: { id: 1 },
-        data: {
-          blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
-          ...(hasMsgs ? { msgTeacher: dto.msgTeacher, msgStudent: dto.msgStudent } : {}),
-        },
-      });
-    }
+      if (dto.schedule !== undefined) {
+        const { openTime, closeTime, slotDuration, overrides } = dto.schedule;
+        await tx.timeOverride.deleteMany({ where: { configId: 1 } });
+        const list = overrides || [];
+        if (list.length) {
+          await tx.timeOverride.createMany({
+            data: list.map((o) => ({
+              configId: 1,
+              original: o.original,
+              newTime: o.newTime ?? null,
+              duration: o.duration ?? null,
+              deleted: o.deleted ?? false,
+            })),
+          });
+        }
+        await tx.studioConfig.update({
+          where: { id: 1 },
+          data: { openTime, closeTime, slotDuration },
+        });
+      }
+
+      // Если прислан только schedule или только dayBlocks — не затираем сообщения пустыми значениями
+      const hasMsgs = dto.msgTeacher !== undefined || dto.msgStudent !== undefined;
+      if (dto.blockedDays !== undefined || hasMsgs) {
+        await tx.studioConfig.update({
+          where: { id: 1 },
+          data: {
+            blockedDays: dto.blockedDays !== undefined ? dto.blockedDays : undefined,
+            ...(hasMsgs ? { msgTeacher: dto.msgTeacher, msgStudent: dto.msgStudent } : {}),
+          },
+        });
+      }
+    });
 
     return this.getConfig();
   }

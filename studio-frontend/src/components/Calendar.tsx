@@ -26,16 +26,21 @@ const Calendar: React.FC<CalendarProps> = ({
     const dow = date.getDay() === 0 ? 7 : date.getDay();
     if (config.blockedDays.includes(dow) && !isWeekend(date)) return { blocked: true };
     const key = dateKey(date);
-    const block = (config.dayBlocks || []).find((b) => b.dateFrom <= key && key <= b.dateTo);
-    if (block) {
-      if (block.audience === 'all' || block.audience === role) {
-        // блокировка только на часть дня — день остаётся кликабельным, слоты скроет бэкенд
-        if (block.timeFrom && block.timeTo) return { blocked: false, audience: block.audience, partial: true };
-        return { blocked: true, audience: block.audience };
-      }
-      return { blocked: false, audience: block.audience };
+    // учитываем ВСЕ блокировки, попадающие на этот день (разных аудиторий и промежутков)
+    const blocks = (config.dayBlocks || []).filter((b) => b.dateFrom <= key && key <= b.dateTo);
+    if (!blocks.length) return { blocked: false };
+
+    const forRole = blocks.filter((b) => b.audience === 'all' || b.audience === role);
+    // блокировка на весь день для нашей роли — день недоступен
+    if (forRole.some((b) => !b.timeFrom || !b.timeTo)) {
+      return { blocked: true, audience: forRole.find((b) => !b.timeFrom || !b.timeTo)!.audience };
     }
-    return { blocked: false };
+    // частичные блокировки по времени для нашей роли — день кликабелен, слоты скроет бэкенд
+    if (forRole.length) {
+      return { blocked: false, audience: forRole[0].audience, partial: true };
+    }
+    // блокировка только для другой роли — показываем подсказку
+    return { blocked: false, audience: blocks[0].audience };
   };
 
   const handleDateClick = (date: Date | null) => {
