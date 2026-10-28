@@ -119,7 +119,17 @@ export const updateConfig = (config: Partial<StudioConfig>) => {
   // пустые сообщения не отправляем — сервер может ещё не иметь реальных значений, а затирать их нельзя
   if (config.msgTeacher !== undefined && config.msgTeacher !== '') payload.msgTeacher = config.msgTeacher;
   if (config.msgStudent !== undefined && config.msgStudent !== '') payload.msgStudent = config.msgStudent;
-  if (config.dayBlocks !== undefined) payload.dayBlocks = config.dayBlocks;
+  // timeFrom/timeTo: пустые строки превращаем в null (блокировка на весь день),
+  // чтобы серверная валидация формата HH:mm не отклоняла весь запрос
+  if (config.dayBlocks !== undefined) {
+    payload.dayBlocks = config.dayBlocks.map((b) => ({
+      audience: b.audience,
+      dateFrom: b.dateFrom,
+      dateTo: b.dateTo,
+      ...(b.timeFrom ? { timeFrom: b.timeFrom } : {}),
+      ...(b.timeTo ? { timeTo: b.timeTo } : {}),
+    }));
+  }
   // приводим schedule к виду бэкенда: { openTime, closeTime, slotDuration, overrides }
   if (config.openTime !== undefined || config.closeTime !== undefined || config.slotDuration !== undefined || config.timeOverrides !== undefined) {
     payload.schedule = {
