@@ -91,119 +91,164 @@ apply_migrations_via_psql() {
     return 0
 }
 
-needs_db_push() {
-    # проверяем наличие ключевых таблиц через simple запрос к information_schema
+# DB-параметры из DATABASE_URL (глобальные переменные для хелперов ниже)
+DBH=""; DBP=""; DBN=""; DBU=""; DBPASS=""
+parse_db_url() {
     local url="${DATABASE_URL}"
     local hostport=$(echo "$url" | sed -E 's|.*@([^/?]+).*|\1|')
-    local host=${hostport%:*} port=${hostport##*:}; [ "$port" = "$hostport" ] && port=5432
-    local dbname=$(echo "$url" | sed -E 's|.*/([^/?]+)\?.*|\1|; s|.*/([^/?]+)$|\1|')
-    local user=$(echo "$url" | sed -E 's|.*://([^:@]+).*|\1|')
-    local pass=$(echo "$url" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')
-    
-    # если ни StudioConfig, ни DayBlock нет — схема не инициализирована
-    local count=$(PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$dbname" -tAc \
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('StudioConfig','DayBlock','TimeOverride');" 2>/dev/null || echo 0)
-    [ "$count" -lt 3 ]
+    DBH=${hostport%:*}; DBP=${hostport##*:}; [ "$DBP" = "$hostport" ] && DBP=5432
+    DBN=$(echo "$url" | sed -E 's|.*/([^/?]+)\?.*|\1|; s|.*/([^/?]+)$|\1|')
+    DBU=$(echo "$url" | sed -E 's|.*://([^:@]+).*|\1|')
+    DBPASS=$(echo "$url" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')
+}
+parse_db_url
+
+psql_db() {
+    PGPASSWORD="$DBPASS" psql -h "$DBH" -p "$DBP" -U "$DBU" -d "$DBN" -v ON_ERROR_STOP=1 -q "$@"
 }
 
-# ПРЯМОЕ ПРИМЕНЕНИЕ СХЕМЫ ЧЕРЕЗ POSTGRES C SQL (без Prisma CLI)
-# Этот подход экономит RAM: не грузим Query Engine (~150MB), а делаем простой CREATE TABLE
-direct_apply_schema_sql() {
-    local url="${DATABASE_URL}"
-    local hostport=$(echo "$url" | sed -E 's|.*@([^/?]+).*|\1|')
-    local host=${hostport%:*} port=${hostport##*:}; [ "$port" = "$hostport" ] && port=5432
-    local dbname=$(echo "$url" | sed -E 's|.*/([^/?]+)\?.*|\1|; s|.*/([^/?]+)$|\1|')
-    local user=$(echo "$url" | sed -E 's|.*://([^:@]+).*|\1|')
-    local pass=$(echo "$url" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')
-    
-    echo "[entrypoint] создаю таблицы напрямую через PostgreSQL SQL (минимум RAM)"
-    
-    # ШАГ 1: таблица конфигурации студии (основная запись с id=1)
-    # Все поля — строки или массивы строк как в Prisma schema (без enum типов!)
-    cat <<EOSQL | PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$dbname" -v ON_ERROR_STOP=1 -q
-CREATE TABLE IF NOT EXISTS \"StudioConfig\" (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    \"blockedDays\" INTEGER[] DEFAULT '{}',
-    \"msgTeacher\" TEXT NOT NULL DEFAULT '',
-    \"msgStudent\" TEXT NOT NULL DEFAULT '',
-    \"openTime\" VARCHAR(5) NOT NULL DEFAULT '09:00',
-    \"closeTime\" VARCHAR(5) NOT NULL DEFAULT '17:00',
-    \"slotDuration\" INTEGER NOT NULL DEFAULT 60,
-    \"updatedAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+missing_count() {
+    # сколько таблиц из списка $1 (через пробел) ОТСУТСТВУЮТ в public.
+    # SQL проверяет принадлежность каждой таблицы списку ИМЕННО ЦЕЛИКОМ: если
+    # найдена любая таблица вне целевого набора — считаем, что это чужая схема
+    # (например, старая Booking(studio,date,time)) и возвращаем 999 -> пересоздать всё.
+    local list_sql="" t
+    for t in $1; do list_sql="${list_sql}'${t}',"; done
+    list_sql=${list_sql%,}
+    psql_db -tAc "SELECT CASE WHEN COUNT(*) = 0 THEN 8 WHEN bool_and(tablename IN (${list_sql})) AND COUNT(*) >= 8 THEN 0 ELSE 999 END FROM pg_tables WHERE schemaname='public';" 2>/dev/null \
+        | tr -d '[:space:]' || echo 999
+}
+
+# ПРЯМОЕ ПРИМЕНЕНИЕ ВСЕЙ СХЕМЫ ЧЕРЕЗ psql (без Prisma CLI / Query Engine — экономия RAM).
+# Дамп соответствует prisma/schema.prisma 1:1 (типы, имена, индексы, @@map, @default, @updatedAt).
+apply_full_schema_sql() {
+    echo "[entrypoint] создаю ВСЮ схему БД напрямую через PostgreSQL SQL (минимум RAM)"
+
+    psql_db <<'EOSQL'
+CREATE TABLE IF NOT EXISTS "User" (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    "personId" INTEGER,
+    "roleName" TEXT
 );
--- Гарантируем существование записи с id=1
-INSERT INTO \"StudioConfig\" (id, \"msgTeacher\", \"msgStudent\") 
-VALUES (1, 'Студия недоступна для преподавателей', 'Студия недоступна для студентов') 
+CREATE TABLE IF NOT EXISTS "UserRole" (
+    id SERIAL PRIMARY KEY,
+    v0 TEXT NOT NULL UNIQUE
+);
+DO $$ BEGIN
+    ALTER TABLE "User" ADD CONSTRAINT FK_User_roleName
+        FOREIGN KEY ("roleName") REFERENCES "UserRole"(v0) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- casbin-адаптер ожидает именно такую таблицу (Prisma @@map("casbin_rule"))
+CREATE TABLE IF NOT EXISTS casbin_rule (
+    id SERIAL PRIMARY KEY,
+    ptype TEXT NOT NULL,
+    v0 TEXT, v1 TEXT, v2 TEXT, v3 TEXT, v4 TEXT, v5 TEXT
+);
+CREATE TABLE IF NOT EXISTS "Department" (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    "passwordHash" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- enum создаём только если его нет (CREATE TYPE не поддерживает IF NOT EXISTS)
+DO $$ BEGIN
+    CREATE TYPE "BookingStage" AS ENUM ('AWAITING_RECORD','RECORDING','PROCESSING','SENT');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE TABLE IF NOT EXISTS "Booking" (
+    id TEXT PRIMARY KEY,
+    "departmentId" TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    purpose TEXT,
+    role TEXT NOT NULL,
+    date TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    "dateLabel" TEXT,
+    stage "BookingStage" NOT NULL DEFAULT 'AWAITING_RECORD',
+    "stageUpdatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "stageHistory" JSONB NOT NULL DEFAULT '[]',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS Booking_departmentId_idx ON "Booking"("departmentId");
+CREATE INDEX IF NOT EXISTS Booking_date_slot_idx ON "Booking"(date, slot);
+DO $$ BEGIN
+    ALTER TABLE "Booking" ADD CONSTRAINT Booking_departmentId_fkey
+        FOREIGN KEY ("departmentId") REFERENCES "Department"(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE TABLE IF NOT EXISTS "StudioConfig" (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    "blockedDays" INTEGER[] NOT NULL DEFAULT '{}',
+    "msgTeacher" TEXT NOT NULL,
+    "msgStudent" TEXT NOT NULL,
+    "openTime" TEXT NOT NULL DEFAULT '09:00',
+    "closeTime" TEXT NOT NULL DEFAULT '17:00',
+    "slotDuration" INTEGER NOT NULL DEFAULT 60,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "DayBlock" (
+    id SERIAL PRIMARY KEY,
+    "configId" INTEGER NOT NULL,
+    audience TEXT NOT NULL,
+    "dateFrom" TEXT NOT NULL,
+    "dateTo" TEXT NOT NULL,
+    "timeFrom" TEXT,
+    "timeTo" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS DayBlock_configId_idx ON "DayBlock"("configId");
+DO $$ BEGIN
+    ALTER TABLE "DayBlock" ADD CONSTRAINT DayBlock_configId_fkey
+        FOREIGN KEY ("configId") REFERENCES "StudioConfig"(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE TABLE IF NOT EXISTS "TimeOverride" (
+    id SERIAL PRIMARY KEY,
+    "configId" INTEGER NOT NULL,
+    original TEXT NOT NULL,
+    "newTime" TEXT,
+    duration INTEGER,
+    deleted BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE ("configId", original)
+);
+CREATE INDEX IF NOT EXISTS TimeOverride_configId_idx ON "TimeOverride"("configId");
+DO $$ BEGIN
+    ALTER TABLE "TimeOverride" ADD CONSTRAINT TimeOverride_configId_fkey
+        FOREIGN KEY ("configId") REFERENCES "StudioConfig"(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+INSERT INTO "StudioConfig" (id, "msgTeacher", "msgStudent")
+VALUES (1,
+        'В этот день преподаватели не могут записаться. Студия работает в особом режиме.',
+        'В этот день студия работает только для преподавателей. Студенты не могут записаться.')
 ON CONFLICT (id) DO NOTHING;
 EOSQL
 
-    # ШАГ 2: блокировки по дням и времени (audience = строка "teacher"/"student"/"all")
-    cat <<EOSQL | PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$dbname" -v ON_ERROR_STOP=1 -q
-CREATE TABLE IF NOT EXISTS \"DayBlock\" (
-    id SERIAL PRIMARY KEY,
-    \"configId\" INTEGER NOT NULL REFERENCES \"StudioConfig\"(id) ON DELETE CASCADE,
-    audience VARCHAR(20) NOT NULL,
-    \"dateFrom\" DATE NOT NULL,
-    \"dateTo\" DATE NOT NULL,
-    \"timeFrom\" VARCHAR(5),
-    \"timeTo\" VARCHAR(5),
-    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_day_block_config ON \"DayBlock\"(\"configId\");
-CREATE INDEX IF NOT EXISTS idx_day_block_dates ON \"DayBlock\"(\"dateFrom\", \"dateTo\");
-EOSQL
-
-    # ШАГ 3: индивидуальные изменения слотов (original/newTime как TIME, duration в минутах)
-    cat <<EOSQL | PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$dbname" -v ON_ERROR_STOP=1 -q
-CREATE TABLE IF NOT EXISTS \"TimeOverride\" (
-    id SERIAL PRIMARY KEY,
-    \"configId\" INTEGER NOT NULL REFERENCES \"StudioConfig\"(id) ON DELETE CASCADE,
-    original TIME NOT NULL,
-    \"newTime\" TIME,
-    duration INTEGER,
-    deleted BOOLEAN NOT NULL DEFAULT false,
-    UNIQUE(\"configId\", original)
-);
-CREATE INDEX IF NOT EXISTS idx_time_override_config ON \"TimeOverride\"(\"configId\");
-EOSQL
-
-    # ШАГ 4: записи о бронированиях
-    cat <<EOSQL | PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$dbname" -v ON_ERROR_STOP=1 -q
-CREATE TABLE IF NOT EXISTS \"Booking\" (
-    id SERIAL PRIMARY KEY,
-    studio VARCHAR(100) NOT NULL,
-    date DATE NOT NULL,
-    time TIME NOT NULL,
-    \"teacherName\" VARCHAR(255),
-    \"studentName\" VARCHAR(255),
-    purpose TEXT,
-    \"contactPhone\" VARCHAR(20),
-    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    \"updatedAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(studio, date, time)
-);
-CREATE INDEX IF NOT EXISTS idx_booking_date_studio ON \"Booking\"(date, studio);
-CREATE INDEX IF NOT EXISTS idx_booking_teacher ON \"Booking\"(\"teacherName\");
-CREATE INDEX IF NOT EXISTS idx_booking_student ON \"Booking\"(\"studentName\");
-EOSQL
-
-    echo "[entrypoint] таблицы успешно созданы через прямой SQL"
+    echo "[entrypoint] схема создана"
     return 0
 }
 
+ALL_TABLES="User UserRole casbin_rule Department Booking StudioConfig DayBlock TimeOverride"
+
 if apply_migrations_via_psql; then
     echo "[entrypoint] миграции применены"
-elif needs_db_push; then
-    # Сначала пробуем прямое применение схемы через psql (экономия RAM!)
-    if direct_apply_schema_sql; then
-        echo "[entrypoint] схема готова"
-    else
-        echo "[entrypoint] ERROR: прямое применение схемы не удалось."
-        echo "[entrypoint] Возможно проблема с правами или синтаксисом SQL."
-        exit 1
-    fi
 else
-    echo "[entrypoint] основные таблицы уже есть — пропускаем создание схемы"
+    # Раньше проверялось наличие всего 3 таблиц модуля studio — из-за этого seed
+    # падал ("table public.UserRole does not exist"): таблицы студии от старого
+    # direct_apply_schema_sql уже были, а User/UserRole/casbin_rule/Department — нет.
+    # Теперь сверяется ВЕСЬ набор таблиц схемы (8 шт., см. prisma/schema.prisma).
+    MISSING=$(missing_count "$ALL_TABLES")
+    if [ "${MISSING}" != "0" ]; then
+        echo "[entrypoint] схема неполная или чужая (код ${MISSING}) — применяю полную схему"
+        if ! apply_full_schema_sql; then
+            echo "[entrypoint] ERROR: прямое применение схемы не удалось."
+            exit 1
+        fi
+    else
+        echo "[entrypoint] все таблицы схемы уже есть — пропускаем создание"
+    fi
 fi
 
 # сид-данные (скрипт идемпотентен)
