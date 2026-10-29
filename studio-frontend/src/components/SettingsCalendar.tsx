@@ -390,7 +390,7 @@ export default function SettingsCalendar({ config, onConfigUpdate }: Props) {
     <div className="settings-calendar">
       <div className="sc-layout">
         {/* ------- Календарь ------- */}
-        <div className="card sc-cal-card">
+        <div className="card sc-cal-card sc-block">
           <div className="sc-cal-head">
             <button className="btn-secondary btn-sm" onClick={prevMonth}>←</button>
             <div className="sc-cal-title">{MONTHS_RU_LOCAL[viewMonth]} {viewYear}</div>
