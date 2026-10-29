@@ -1305,7 +1305,10 @@ textarea {
 
 .settings-calendar input[type="checkbox"] { accent-color: var(--accent); width: auto; }
 .settings-calendar .checkbox-row { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: 0; }
-.settings-calendar textarea { width: auto; background: rgba(0, 20, 40, .8); border: 1px solid var(--border); color: var(--text); }
+/* textarea в настройках — всегда на всю ширину панели, без глобального width:auto */
+.settings-calendar textarea { display: block; width: 100% !important; box-sizing: border-box; min-height: 56px; background: rgba(0, 20, 40, .8); border: 1px solid var(--border); color: var(--text); }
+.settings-calendar .sc-panel .form-group { margin-bottom: 12px; }
+.settings-calendar .sc-panel .form-group label { margin-bottom: 5px; }
 .settings-calendar .badge-audience.aud-all { background: rgba(224, 58, 58, .25); color: #ffb3b3; }
 .settings-calendar .date-sep { color: var(--text-muted); }
 .sc-layout { display: grid; grid-template-columns: minmax(320px, 460px) 1fr; gap: 16px; align-items: start; }
@@ -1377,21 +1380,33 @@ textarea {
 .sc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .settings-calendar .btn-submit.btn-sm { width: auto; }
 
-.sc-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.sc-slot { border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; padding: 8px; background: rgba(255, 255, 255, .04); color: var(--text); }
+.sc-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.sc-slot { border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; padding: 10px; background: rgba(255, 255, 255, .04); color: var(--text); min-width: 0; }
 .sc-slot.deleted { opacity: .55; background: rgba(255, 255, 255, .02); }
 .sc-slot.blocked { background: rgba(224, 58, 58, .16); border-color: rgba(224, 58, 58, .5); }
-.sc-slot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: .82rem; color: var(--text); }
-.sc-slot-tag { font-size: .68rem; color: #ffb3b3; font-weight: 700; }
-.sc-slot-controls { display: flex; gap: 6px; align-items: center; }
-.sc-slot-controls input[type="time"] {
-  width: 88px; padding: 4px 6px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 8px;
-  font-size: .78rem; background: rgba(0, 20, 40, .8); color: var(--text);
+.sc-slot > * { min-width: 0; }
+.sc-slot-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; font-size: .82rem; color: var(--text); }
+.sc-slot-tag { font-size: .68rem; color: #ffb3b3; font-weight: 700; white-space: nowrap; }
+/* элементы управления слота — вертикальный стек: ничего не накладывается и не сжимается */
+.sc-slot-controls { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.sc-slot-row { display: flex; gap: 6px; align-items: flex-end; min-width: 0; }
+.sc-slot label { margin: 0; padding: 0; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); font-size: inherit; }
+.sc-slot-label { display: block; margin-bottom: 3px; font-size: .66rem; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; }
+.sc-slot-row .sc-dur { flex: 1 1 auto; min-width: 0; }
+.sc-slot-row .sc-del-btn { flex: 0 0 auto; }
+.sc-slot-controls input[type="time"],
+.settings-calendar .sc-slot-controls input[type="time"] {
+  width: 100%; min-width: 0; box-sizing: border-box; height: 32px; padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 8px;
+  font-size: .8rem; background: rgba(0, 20, 40, .8); color: var(--text);
 }
-.sc-slot-controls select {
-  padding: 4px 6px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 8px; font-size: .78rem;
-  background: rgba(0, 20, 40, .8); color: var(--text); width: auto;
+.sc-slot-controls select,
+.settings-calendar .sc-slot-controls select {
+  box-sizing: border-box; height: 32px; padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 8px; font-size: .8rem;
+  background: rgba(0, 20, 40, .8); color: var(--text); width: 100%;
 }
 .sc-slot-controls select option { background: #031a30; color: var(--text); }
+.sc-slot .btn-secondary.btn-sm, .sc-slot .btn-danger.btn-sm { width: auto; padding: 5px 12px; }
 
 .sc-toolbar { display: flex; gap: 8px; justify-content: flex-end; }
