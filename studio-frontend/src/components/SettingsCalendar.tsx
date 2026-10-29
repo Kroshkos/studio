@@ -571,35 +571,43 @@ export default function SettingsCalendar({ config, onConfigUpdate }: Props) {
                         </div>
                         {!deleted && (
                           <div className="sc-slot-controls">
-                            <input
-                              type="time"
-                              value={time}
-                              step={300}
-                              disabled={busy}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                if (v === s.original && dur === slotDuration) setOverride(s.original, null, false);
-                                else setOverride(s.original, { newTime: v }, false);
-                              }}
-                              onBlur={(e) => {
-                                const v = e.target.value;
-                                if (!v) return;
-                                if (v === s.original && dur === slotDuration) commitOverride(s.original, null);
-                                else commitOverride(s.original, { newTime: v });
-                              }}
-                            />
-                            <select
-                              value={dur}
-                              disabled={busy}
-                              onChange={(e) => {
-                                const v = Number(e.target.value);
-                                if (v === slotDuration && time === s.original) commitOverride(s.original, null);
-                                else commitOverride(s.original, { duration: v });
-                              }}
-                            >
-                              {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}м</option>)}
-                            </select>
-                            <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => setOverride(s.original, { deleted: true }, true)}>✕</button>
+                            <label className="sc-dur">
+                              <span className="sc-slot-label">Время начала</span>
+                              <input
+                                type="time"
+                                value={time}
+                                step={300}
+                                disabled={busy}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === s.original && dur === slotDuration) setOverride(s.original, null, false);
+                                  else setOverride(s.original, { newTime: v }, false);
+                                }}
+                                onBlur={(e) => {
+                                  const v = e.target.value;
+                                  if (!v) return;
+                                  if (v === s.original && dur === slotDuration) commitOverride(s.original, null);
+                                  else commitOverride(s.original, { newTime: v });
+                                }}
+                              />
+                            </label>
+                            <div className="sc-slot-row">
+                              <label className="sc-dur">
+                                <span className="sc-slot-label">Длительность</span>
+                                <select
+                                  value={dur}
+                                  disabled={busy}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    if (v === slotDuration && time === s.original) commitOverride(s.original, null);
+                                    else commitOverride(s.original, { duration: v });
+                                  }}
+                                >
+                                  {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}м</option>)}
+                                </select>
+                              </label>
+                              <button type="button" className="btn-danger btn-sm sc-del-btn" title="Удалить слот" disabled={busy} onClick={() => setOverride(s.original, { deleted: true }, true)}>✕</button>
+                            </div>
                           </div>
                         )}
                         {deleted && (
