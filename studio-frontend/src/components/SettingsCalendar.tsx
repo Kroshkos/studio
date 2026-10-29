@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getSlots, updateConfig } from '../api/studio';
 import {
   AUDIENCE_RU,
@@ -126,15 +126,28 @@ export default function SettingsCalendar({ config, onConfigUpdate }: Props) {
   const [busy, setBusy] = useState(false);
   const [bookingsInfo, setBookingsInfo] = useState<Record<string, number>>({});
 
-  // синхронизация с сервером при загрузке/сохранении
+  // синхронизация локальных полей формы с серверным конфигом.
+  // ВАЖНО: зависим только от скалярных полей конфига, а не от объекта config целиком —
+  // иначе любое обновление ссылки на config (например, фоновый fetch в AdminPanel)
+  // сбрасывало бы несохранённый ввод и перерисовывало календарь.
+  const cfgOpen = config.openTime || '09:00';
+  const cfgClose = config.closeTime || '17:00';
+  const cfgStep = config.slotDuration || 60;
+  const cfgMsgT = config.msgTeacher || '';
+  const cfgMsgS = config.msgStudent || '';
+  const cfgOvKey = JSON.stringify(
+    (config.timeOverrides || []).map((o) => [o.original, o.newTime ?? null, o.duration ?? null, !!o.deleted]),
+  );
+
   useEffect(() => {
-    setOpenTime(config.openTime || '09:00');
-    setCloseTime(config.closeTime || '17:00');
-    setSlotDuration(config.slotDuration || 60);
-    setMsgTeacher(config.msgTeacher || '');
-    setMsgStudent(config.msgStudent || '');
+    setOpenTime(cfgOpen);
+    setCloseTime(cfgClose);
+    setSlotDuration(cfgStep);
+    setMsgTeacher(cfgMsgT);
+    setMsgStudent(cfgMsgS);
     setOverrides(Object.fromEntries((config.timeOverrides || []).map((o) => [o.original, o])));
-  }, [config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfgOpen, cfgClose, cfgStep, cfgMsgT, cfgMsgS, cfgOvKey]);
 
   const dayBlocks = useMemo(() => config.dayBlocks || [], [config.dayBlocks]);
 
@@ -166,16 +179,19 @@ export default function SettingsCalendar({ config, onConfigUpdate }: Props) {
     setSelectedDates(dates);
   };
 
-  const [dragMoved, setDragMoved] = useState(false);
+  // Клик по дате просто выбирает её. Снятие выделения — только кнопкой «Снять выделение»,
+  // иначе повторные клики «сбрасывали» выбор. Протягивание мышью выделяет промежуток;
+  // после протяжки последующий click игнорируется (dragMoved), чтобы не сбивать диапазон.
+  const dragMovedRef = useRef(false);
 
   const onDayMouseDown = (d: string) => {
+    dragMovedRef.current = false;
     setDragAnchor(d);
-    setDragMoved(false);
     setSelectedDates([d]);
   };
   const onDayMouseEnter = (d: string) => {
     if (dragAnchor && d !== dragAnchor) {
-      setDragMoved(true);
+      dragMovedRef.current = true;
       selectRange(dragAnchor, d);
     }
   };
@@ -185,10 +201,8 @@ export default function SettingsCalendar({ config, onConfigUpdate }: Props) {
     return () => window.removeEventListener('mouseup', stopDrag);
   }, []);
 
-  // клик без протягивания по уже выбранной дате — снять выделение
-  const onDayClick = (d: string) => {
-    if (dragMoved) return;
-    if (selectedDates.length === 1 && selectedDates[0] === d) setSelectedDates([]);
+  const onDayClick = (_d: string) => {
+    // ничего не делаем: выбор уже установлен в onMouseDown
   };
 
   /* ---------- сохранение ---------- */
